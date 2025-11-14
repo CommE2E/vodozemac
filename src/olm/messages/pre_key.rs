@@ -47,6 +47,11 @@ impl PreKeyMessage {
         self.session_keys.one_time_key
     }
 
+    ///TODO: docs
+    pub const fn pre_key(&self) -> Curve25519PublicKey {
+        self.session_keys.pre_key
+    }
+
     /// The base key, a single use key that was created just in time by the
     /// sender of the message. Should be used to establish a [`Session`].
     ///
@@ -123,6 +128,7 @@ impl PreKeyMessage {
             base_key: self.session_keys.base_key.as_bytes().to_vec(),
             identity_key: self.session_keys.identity_key.as_bytes().to_vec(),
             message: self.message.to_bytes(),
+            pre_key: self.session_keys.pre_key.as_bytes().to_vec(),
         };
 
         let mut output: Vec<u8> = vec![0u8; message.encoded_len() + 1];
@@ -211,10 +217,11 @@ impl TryFrom<&[u8]> for PreKeyMessage {
             let one_time_key = Curve25519PublicKey::from_slice(&decoded.one_time_key)?;
             let base_key = Curve25519PublicKey::from_slice(&decoded.base_key)?;
             let identity_key = Curve25519PublicKey::from_slice(&decoded.identity_key)?;
+            let pre_key = Curve25519PublicKey::from_slice(&decoded.pre_key)?;
 
             let message = decoded.message.try_into()?;
 
-            let session_keys = SessionKeys { one_time_key, identity_key, base_key };
+            let session_keys = SessionKeys { one_time_key, identity_key, base_key, pre_key };
 
             Ok(Self { session_keys, message })
         }
@@ -231,4 +238,6 @@ struct ProtoBufPreKeyMessage {
     identity_key: Vec<u8>,
     #[prost(bytes, tag = "4")]
     message: Vec<u8>,
+    #[prost(bytes, tag = "5")]
+    pre_key: Vec<u8>,
 }

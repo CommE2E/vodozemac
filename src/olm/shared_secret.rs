@@ -39,12 +39,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{Curve25519PublicKey as PublicKey, types::Curve25519SecretKey as StaticSecret};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Shared3DHSecret(Box<[u8; 96]>);
+pub struct Shared3DHSecret(Box<[u8; 128]>);
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct RemoteShared3DHSecret(Box<[u8; 96]>);
+pub struct RemoteShared3DHSecret(Box<[u8; 128]>);
 
-fn expand(shared_secret: &[u8; 96]) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
+fn expand(shared_secret: &[u8; 128]) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
     let hkdf: Hkdf<Sha256> = Hkdf::new(Some(&[0]), shared_secret);
     let mut root_key = Box::new([0u8; 32]);
     let mut chain_key = Box::new([0u8; 32]);
@@ -67,12 +67,16 @@ fn merge_secrets(
     first_secret: SharedSecret,
     second_secret: SharedSecret,
     third_secret: SharedSecret,
-) -> Box<[u8; 96]> {
-    let mut secret = Box::new([0u8; 96]);
+    fourth_secret: Option<SharedSecret>,
+) -> Box<[u8; 128]> {
+    let mut secret = Box::new([0u8; 128]);
 
     secret[0..32].copy_from_slice(first_secret.as_bytes());
     secret[32..64].copy_from_slice(second_secret.as_bytes());
     secret[64..96].copy_from_slice(third_secret.as_bytes());
+    if let Some(fourth_secret) = fourth_secret {
+        secret[96..].copy_from_slice(fourth_secret.as_bytes());
+    }
 
     secret
 }
@@ -83,12 +87,21 @@ impl RemoteShared3DHSecret {
         one_time_key: &StaticSecret,
         remote_identity_key: &PublicKey,
         remote_one_time_key: &PublicKey,
+        pre_key_secret: &StaticSecret,
     ) -> Self {
+        let using_prekey_as_otk =
+            remote_one_time_key.to_bytes() == PublicKey::from(pre_key_secret).to_bytes();
+
         let first_secret = one_time_key.diffie_hellman(remote_identity_key);
         let second_secret = identity_key.diffie_hellman(remote_one_time_key);
         let third_secret = one_time_key.diffie_hellman(remote_one_time_key);
 
-        Self(merge_secrets(first_secret, second_secret, third_secret))
+        let fourth_secret = match using_prekey_as_otk {
+            true => None,
+            false => pre_key_secret.diffie_hellman(remote_one_time_key).into(),
+        };
+
+        Self(merge_secrets(first_secret, second_secret, third_secret, fourth_secret))
     }
 
     pub fn expand(self) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
@@ -101,13 +114,18 @@ impl Shared3DHSecret {
         identity_key: &StaticSecret,
         one_time_key: &ReusableSecret,
         remote_identity_key: &PublicKey,
-        remote_one_time_key: &PublicKey,
+        remote_one_time_key: &Option<PublicKey>,
+        remote_prekey: &PublicKey,
     ) -> Self {
-        let first_secret = identity_key.diffie_hellman(remote_one_time_key);
+        let bob_one_time_key = remote_one_time_key.unwrap_or_else(|| *remote_prekey);
+        let first_secret = identity_key.diffie_hellman(&bob_one_time_key);
         let second_secret = one_time_key.diffie_hellman(&remote_identity_key.inner);
-        let third_secret = one_time_key.diffie_hellman(&remote_one_time_key.inner);
-
-        Self(merge_secrets(first_secret, second_secret, third_secret))
+        let third_secret = one_time_key.diffie_hellman(&bob_one_time_key.inner);
+        let fourth_secret = match remote_one_time_key {
+            None => None,
+            Some(_) => one_time_key.diffie_hellman(&remote_prekey.inner).into(),
+        };
+        Self(merge_secrets(first_secret, second_secret, third_secret, fourth_secret))
     }
 
     pub fn expand(self) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
@@ -133,11 +151,14 @@ mod test {
         let bob_identity = StaticSecret::new();
         let bob_one_time = StaticSecret::new();
 
+        let bob_prekey = StaticSecret::new();
+
         let alice_secret = Shared3DHSecret::new(
             &alice_identity,
             &alice_one_time,
             &PublicKey::from(&bob_identity),
-            &PublicKey::from(&bob_one_time),
+            &PublicKey::from(&bob_one_time).into(),
+            &PublicKey::from(&bob_prekey),
         );
 
         let bob_secret = RemoteShared3DHSecret::new(
@@ -145,6 +166,7 @@ mod test {
             &bob_one_time,
             &PublicKey::from(&alice_identity),
             &PublicKey::from(&alice_one_time),
+            &bob_prekey,
         );
 
         assert_eq!(alice_secret.0, bob_secret.0);
