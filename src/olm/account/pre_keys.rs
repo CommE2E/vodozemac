@@ -2,6 +2,9 @@ use crate::{Curve25519PublicKey, Ed25519Keypair, Ed25519Signature, types::Curve2
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "js")]
+use js_sys;
+
 #[derive(Serialize, Deserialize, Clone)]
 pub(super) struct PreKey {
     pub key_id: u32,
@@ -58,12 +61,18 @@ impl PreKeys {
     }
 
     pub fn mark_as_published(&mut self) -> bool {
+        println!("mark_as_published");
         if let Some(f) = self.current_prekey.as_mut() {
             if f.published {
                 return false;
             }
+            #[cfg(feature = "js")]
+            let timestamp = (js_sys::Date::now() / 1000.0) as u64;
+
+            #[cfg(not(feature = "js"))]
             let timestamp =
                 SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
             self.last_prekey_publish_time = timestamp;
             f.mark_as_published();
             true

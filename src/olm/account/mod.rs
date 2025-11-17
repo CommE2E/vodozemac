@@ -438,6 +438,12 @@ impl Account {
         self.pre_keys.get_prekey_signature()
     }
 
+    ///TODO: DOCS
+    pub fn unpublished_prekey(&self) -> Option<Curve25519PublicKey> {
+        let pre_key = self.pre_keys.current_pre_key();
+        if let Some(pre_key) = pre_key { Some(pre_key.public_key()) } else { None }
+    }
+
     /// Create an [`Account`] object by unpickling an account pickle in libolm
     /// legacy pickle format.
     ///

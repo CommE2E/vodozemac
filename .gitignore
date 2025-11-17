@@ -5,3 +5,6 @@ Cargo.lock
 /afl/*/out*
 mutants.out*
 coverage.xml
+/js/target
+/js/node_modules
+.idea

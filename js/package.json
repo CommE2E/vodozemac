@@ -1,0 +1,21 @@
+{
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-flow": "^7.27.1",
+    "@commapp/olm": "^0.2.6",
+    "babel-jest": "^30.2.0",
+    "flow-bin": "^0.239.1",
+    "jest": "^27.5.1"
+  },
+  "scripts": {
+    "build-node": "wasm-pack build --target nodejs --out-dir wasm/node --out-name vodozemac",
+    "build-web": "wasm-pack build --target web --no-typescript --reference-types --no-pack --out-dir wasm/web --out-name vodozemac",
+    "flow": "flow",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "jest": {
+    "globals": {
+      "__DEV__": false
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[ignore]
+.*/node_modules/.*
+.*/wasm/.*\.wasm$
+
+[include]
+
+[libs]
+node_modules/flow-typed/
+
+[lints]
+
+[options]
+module.system=node
+
+[strict]
