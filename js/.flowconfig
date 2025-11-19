@@ -1,0 +1,30 @@
+[ignore]
+.*/node_modules/.*
+.*/wasm/.*\.wasm$
+
+[include]
+
+[libs]
+node_modules/flow-typed/
+
+[options]
+
+[lints]
+sketchy-null-number = warn
+sketchy-null-mixed = warn
+sketchy-number = warn
+untyped-type-import = error
+nonstrict-import = error
+deprecated-type = error
+unsafe-getters-setters = warn
+unnecessary-invariant = warn
+unused-promise = error
+
+[strict]
+deprecated-type
+nonstrict-import
+sketchy-null
+unclear-type
+unsafe-getters-setters
+untyped-import
+untyped-type-import
