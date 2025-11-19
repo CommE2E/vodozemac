@@ -39,13 +39,22 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{Curve25519PublicKey as PublicKey, types::Curve25519SecretKey as StaticSecret};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Shared3DHSecret(Box<[u8; 128]>);
+pub struct Shared3DHSecret {
+    secret: Box<[u8; 128]>,
+    secret_length: usize,
+}
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct RemoteShared3DHSecret(Box<[u8; 128]>);
+pub struct RemoteShared3DHSecret {
+    secret: Box<[u8; 128]>,
+    secret_length: usize,
+}
 
-fn expand(shared_secret: &[u8; 128]) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
-    let hkdf: Hkdf<Sha256> = Hkdf::new(Some(&[0]), shared_secret);
+fn expand(shared_secret: &[u8; 128], secret_length: usize) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
+    // COMPATIBILITY: Comm/olm has a bug where it only uses 3 or 4 bytes
+    // of the shared secret for HKDF instead of the full 96 or 128 bytes.
+    // Temporary replicate this bug for compatibility.
+    let hkdf: Hkdf<Sha256> = Hkdf::new(Some(&[0]), &shared_secret[..secret_length]);
     let mut root_key = Box::new([0u8; 32]);
     let mut chain_key = Box::new([0u8; 32]);
 
@@ -88,9 +97,10 @@ impl RemoteShared3DHSecret {
         remote_identity_key: &PublicKey,
         remote_one_time_key: &PublicKey,
         pre_key_secret: &StaticSecret,
+        olm_compatibility_mode: bool,
     ) -> Self {
         let using_prekey_as_otk =
-            remote_one_time_key.to_bytes() == PublicKey::from(pre_key_secret).to_bytes();
+            PublicKey::from(one_time_key).to_bytes() == PublicKey::from(pre_key_secret).to_bytes();
 
         let first_secret = one_time_key.diffie_hellman(remote_identity_key);
         let second_secret = identity_key.diffie_hellman(remote_one_time_key);
@@ -101,11 +111,24 @@ impl RemoteShared3DHSecret {
             false => pre_key_secret.diffie_hellman(remote_one_time_key).into(),
         };
 
-        Self(merge_secrets(first_secret, second_secret, third_secret, fourth_secret))
+        let secret = merge_secrets(first_secret, second_secret, third_secret, fourth_secret);
+
+        // COMPATIBILITY: Comm/olm has a bug where it only uses 3 or 4 bytes
+        // of the shared secret for HKDF instead of the full 96 or 128 bytes.
+        // Temporary replicate this bug for compatibility.
+        let secret_length = if olm_compatibility_mode {
+            if using_prekey_as_otk { 3 } else { 4 }
+        } else if using_prekey_as_otk {
+            96
+        } else {
+            128
+        };
+
+        Self { secret, secret_length }
     }
 
     pub fn expand(self) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
-        expand(&self.0)
+        expand(&self.secret, self.secret_length)
     }
 }
 
@@ -116,6 +139,7 @@ impl Shared3DHSecret {
         remote_identity_key: &PublicKey,
         remote_one_time_key: &Option<PublicKey>,
         remote_prekey: &PublicKey,
+        olm_compatibility_mode: bool,
     ) -> Self {
         let bob_one_time_key = remote_one_time_key.unwrap_or_else(|| *remote_prekey);
         let first_secret = identity_key.diffie_hellman(&bob_one_time_key);
@@ -125,11 +149,25 @@ impl Shared3DHSecret {
             None => None,
             Some(_) => one_time_key.diffie_hellman(&remote_prekey.inner).into(),
         };
-        Self(merge_secrets(first_secret, second_secret, third_secret, fourth_secret))
+
+        let secret = merge_secrets(first_secret, second_secret, third_secret, fourth_secret);
+
+        // COMPATIBILITY: Comm/olm has a bug where it only uses 3 or 4 bytes
+        // of the shared secret for HKDF instead of the full 96 or 128 bytes.
+        // Temporary replicate this bug for compatibility.
+        let secret_length = if olm_compatibility_mode {
+            if remote_one_time_key.is_some() { 4 } else { 3 }
+        } else if remote_one_time_key.is_some() {
+            128
+        } else {
+            96
+        };
+
+        Self { secret, secret_length }
     }
 
     pub fn expand(self) -> (Box<[u8; 32]>, Box<[u8; 32]>) {
-        expand(&self.0)
+        expand(&self.secret, self.secret_length)
     }
 }
 
@@ -159,6 +197,7 @@ mod test {
             &PublicKey::from(&bob_identity),
             &PublicKey::from(&bob_one_time).into(),
             &PublicKey::from(&bob_prekey),
+            false,
         );
 
         let bob_secret = RemoteShared3DHSecret::new(
@@ -167,9 +206,50 @@ mod test {
             &PublicKey::from(&alice_identity),
             &PublicKey::from(&alice_one_time),
             &bob_prekey,
+            false,
         );
 
-        assert_eq!(alice_secret.0, bob_secret.0);
+        assert_eq!(alice_secret.secret, bob_secret.secret);
+        assert_eq!(alice_secret.secret_length, bob_secret.secret_length);
+
+        let alice_result = alice_secret.expand();
+        let bob_result = bob_secret.expand();
+
+        assert_eq!(alice_result, bob_result);
+    }
+
+    #[test]
+    fn triple_diffie_hellman_olm_compatibility() {
+        let rng = thread_rng();
+
+        let alice_identity = StaticSecret::new();
+        let alice_one_time = ReusableSecret::random_from_rng(rng);
+
+        let bob_identity = StaticSecret::new();
+        let bob_one_time = StaticSecret::new();
+
+        let bob_prekey = StaticSecret::new();
+
+        let alice_secret = Shared3DHSecret::new(
+            &alice_identity,
+            &alice_one_time,
+            &PublicKey::from(&bob_identity),
+            &PublicKey::from(&bob_one_time).into(),
+            &PublicKey::from(&bob_prekey),
+            true,
+        );
+
+        let bob_secret = RemoteShared3DHSecret::new(
+            &bob_identity,
+            &bob_one_time,
+            &PublicKey::from(&alice_identity),
+            &PublicKey::from(&alice_one_time),
+            &bob_prekey,
+            true,
+        );
+
+        assert_eq!(alice_secret.secret, bob_secret.secret);
+        assert_eq!(alice_secret.secret_length, bob_secret.secret_length);
 
         let alice_result = alice_secret.expand();
         let bob_result = bob_secret.expand();

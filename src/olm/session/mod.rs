@@ -100,7 +100,6 @@ impl ChainStore {
     #[cfg(test)]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
-    //FIXME
     pub const fn len(&self) -> usize {
         self.inner.len()
     }
@@ -228,7 +227,7 @@ impl Session {
 
     /// TODO: docs
     pub const fn is_sender_chain_empty(&self) -> bool {
-        self.sending_ratchet.is_empty()
+        !self.sending_ratchet.is_active_state()
     }
 
     /// Encrypt the `plaintext` and construct an [`OlmMessage`].
@@ -410,8 +409,6 @@ mod libolm_compat {
         #[allow(dead_code)]
         received_message: bool,
         session_keys: SessionKeys,
-        #[allow(dead_code)]
-        prekey: [u8; 32],
         #[secret]
         root_key: Box<[u8; 32]>,
         sender_chains: Vec<SenderChain>,
@@ -531,7 +528,6 @@ impl From<SessionPickle> for Session {
 #[cfg(test)]
 #[cfg(any())]
 #[ignore = "libolm in Rust version does not support X3DH"]
-//FIXME
 mod test {
     use anyhow::{Result, bail};
     use assert_matches2::assert_matches;

@@ -58,7 +58,7 @@
 //!
 //!     bob.generate_one_time_keys(1);
 //!     let bob_otk = *bob.one_time_keys().values().next().unwrap();
-//!     let bob_pre_key = bob.pre_key().unwrap();
+//!     let bob_pre_key = bob.prekey().unwrap();
 //!     let bob_pre_key_signature = bob.get_prekey_signature().unwrap();
 //!
 //!     let mut alice_session = alice.create_outbound_session(
@@ -67,7 +67,8 @@
 //!         bob.ed25519_key(),
 //!         Some(bob_otk),
 //!         bob_pre_key,
-//!         bob_pre_key_signature
+//!         bob_pre_key_signature,
+//!         false
 //!     )?;
 //!
 //!     bob.mark_keys_as_published();
