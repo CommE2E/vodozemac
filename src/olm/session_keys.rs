@@ -49,7 +49,7 @@ impl SessionKeys {
     /// globally unique.
     ///
     /// This should also include prekey, but Olm is not doing that,
-    /// and to make both libraries compatible, behaviour needs to
+    /// and to make both libraries compatible, the behaviour needs to
     /// be maintained.
     pub fn session_id(&self) -> String {
         let sha = Sha256::new();
@@ -58,7 +58,6 @@ impl SessionKeys {
             .chain_update(self.identity_key.as_bytes())
             .chain_update(self.base_key.as_bytes())
             .chain_update(self.one_time_key.as_bytes())
-            // There is a bug in Olm, and we need to keep to it
             .finalize();
 
         base64_encode(digest)

@@ -952,8 +952,10 @@ mod libolm {
                 public_curve25519_key: account.diffie_hellman_key.public_key().to_bytes(),
                 private_curve25519_key: account.diffie_hellman_key.secret_key().to_bytes(),
                 prekeys,
-                next_prekey_id: 0,
-                last_prekey_publish_time: Timestamp(0),
+                next_prekey_id: account.prekeys.next_prekey_id,
+                last_prekey_publish_time: Timestamp(
+                    account.prekeys.last_prekey_publish_time.into(),
+                ),
                 one_time_keys,
                 fallback_keys,
                 next_key_id,
@@ -1172,7 +1174,7 @@ mod dehydrated_device {
                 diffie_hellman_key: Curve25519Keypair::from_secret_key(
                     &pickle.private_curve25519_key,
                 ),
-                //TODO: check this
+                //FIXME: add X3DH support for dehydrated devices
                 prekeys: PreKeys::new(signing_key),
                 one_time_keys,
                 fallback_keys,
@@ -1778,7 +1780,7 @@ mod test {
         alice.generate_one_time_keys(1);
 
         // Create session with Bob's prekey (which Alice doesn't have)
-        let mut bob = Account::new();
+        let bob = Account::new();
         let bob_prekey = bob.prekey().unwrap();
         let bob_prekey_sig = bob.get_prekey_signature().unwrap();
 

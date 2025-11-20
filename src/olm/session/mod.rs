@@ -225,7 +225,9 @@ impl Session {
         !self.receiving_chains.is_empty()
     }
 
-    /// TODO: docs
+    /// Returns information if sending ratchet is in active state.
+    ///
+    /// Used in Comm's logic to discover a race condition in notification encryption.
     pub const fn is_sender_chain_empty(&self) -> bool {
         !self.sending_ratchet.is_active_state()
     }
