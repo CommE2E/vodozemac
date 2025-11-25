@@ -37,7 +37,7 @@ use super::{
     messages::PreKeyMessage,
     session::{DecryptionError, Session},
     session_keys::SessionKeys,
-    shared_secret::{RemoteShared3DHSecret, Shared3DHSecret},
+    shared_secret::{RemoteSharedX3DHSecret, SharedX3DHSecret},
 };
 use crate::olm::account::prekeys::PreKeys;
 use crate::{
@@ -199,7 +199,7 @@ impl Account {
         let signature = Ed25519Signature::from_base64(prekey_signature.as_str())?;
         signing_key.verify(prekey.to_bytes().as_ref(), &signature)?;
 
-        let shared_secret = Shared3DHSecret::new(
+        let shared_secret = SharedX3DHSecret::new(
             self.diffie_hellman_key.secret_key(),
             &base_key,
             &identity_key,
@@ -211,6 +211,10 @@ impl Account {
         let session_keys = SessionKeys {
             identity_key: self.curve25519_key(),
             base_key: public_base_key,
+            // When there's no OTK available, we use the prekey as the OTK.
+            // This avoids making OTK nullable across the entire system.
+            // The receiver will detect this by comparing OTK == prekey.
+            // This is for compatibility with our Olm fork.
             one_time_key: one_time_key.unwrap_or(prekey),
             prekey,
         };
@@ -262,17 +266,20 @@ impl Account {
             ))
         } else {
             let public_prekey = pre_key_message.prekey();
-            let Some(our_prekey) = self.prekeys.get_secret_key(&public_prekey) else {
+            let Some(private_prekey) = self.prekeys.get_secret_key(&public_prekey) else {
                 return Err(SessionCreationError::MissingPreKey(public_prekey));
             };
 
             // Find the matching private part of the OTK that the message claims
-            // was used to create the session that encrypted it,
-            // or use prekey as OTK.
+            // was used to create the session that encrypted it.
+            // If OTK == prekey, this means the sender didn't have an OTK available
+            // and used the prekey as OTK instead (see create_outbound_session).
+            // We compare the bytes to detect this case, rather than making OTK nullable.
+            // This is for compatibility with our Olm fork.
             let public_otk = pre_key_message.one_time_key();
             let using_prekey_as_otk = public_otk.to_bytes() == public_prekey.to_bytes();
             let private_otk = match using_prekey_as_otk {
-                true => our_prekey,
+                true => private_prekey,
                 false => self
                     .find_one_time_key(&public_otk)
                     .ok_or(SessionCreationError::MissingOneTimeKey(public_otk))?,
@@ -295,12 +302,12 @@ impl Account {
             let try_decrypt_with_mode =
                 |olm_compatibility_mode: bool| -> Result<(Session, Vec<u8>), DecryptionError> {
                     // Construct a X3DH shared secret from the various curve25519 keys.
-                    let shared_secret = RemoteShared3DHSecret::new(
+                    let shared_secret = RemoteSharedX3DHSecret::new(
                         self.diffie_hellman_key.secret_key(),
                         private_otk,
                         &pre_key_message.identity_key(),
                         &pre_key_message.base_key(),
-                        our_prekey,
+                        private_prekey,
                         olm_compatibility_mode,
                     );
 
@@ -433,7 +440,7 @@ impl Account {
     /// Generate a signed new prekey.
     ///
     /// The prekey key will be used by other users to establish a [`Session`].
-    pub fn generate_prekey(&mut self) -> bool {
+    pub fn generate_prekey(&mut self) {
         self.prekeys.generate_prekey(self.signing_key.clone())
     }
 
@@ -517,6 +524,9 @@ impl Account {
     /// use olm_rs::{account::OlmAccount, PicklingMode};
     /// let account = Account::new();
     ///
+    /// let export = account
+    ///     .to_libolm_pickle(&[0u8; 32])
+    ///     .expect("We should be able to pickle a freshly created Account");
     /// ```
     #[cfg(feature = "libolm-compat")]
     pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
@@ -773,7 +783,7 @@ mod libolm {
     }
 
     #[derive(Encode, Decode, Zeroize, ZeroizeOnDrop)]
-    struct LibolmPrekey {
+    struct PickledPreKey {
         key_id: u32,
         published: bool,
         public_key: [u8; 32],
@@ -781,8 +791,8 @@ mod libolm {
         signature: [u8; 64],
     }
 
-    impl From<&LibolmPrekey> for PreKey {
-        fn from(key: &LibolmPrekey) -> Self {
+    impl From<&PickledPreKey> for PreKey {
+        fn from(key: &PickledPreKey) -> Self {
             PreKey {
                 key_id: key.key_id,
                 published: key.published,
@@ -793,20 +803,20 @@ mod libolm {
     }
 
     #[derive(Zeroize, ZeroizeOnDrop)]
-    struct PreKeysArray {
-        current_prekey: Option<LibolmPrekey>,
-        prev_prekey: Option<LibolmPrekey>,
+    struct PickledPreKeys {
+        current_prekey: Option<PickledPreKey>,
+        prev_prekey: Option<PickledPreKey>,
     }
 
-    impl Decode for PreKeysArray {
+    impl Decode for PickledPreKeys {
         fn decode(reader: &mut impl std::io::Read) -> Result<Self, DecodeError> {
             let count = u8::decode(reader)?;
 
             let (current_prekey, prev_prekey) = if count >= 1 {
-                let current_prekey = LibolmPrekey::decode(reader)?;
+                let current_prekey = PickledPreKey::decode(reader)?;
 
                 let prev_prekey =
-                    if count >= 2 { Some(LibolmPrekey::decode(reader)?) } else { None };
+                    if count >= 2 { Some(PickledPreKey::decode(reader)?) } else { None };
 
                 (Some(current_prekey), prev_prekey)
             } else {
@@ -817,7 +827,7 @@ mod libolm {
         }
     }
 
-    impl Encode for PreKeysArray {
+    impl Encode for PickledPreKeys {
         fn encode(&self, writer: &mut impl std::io::Write) -> Result<usize, EncodeError> {
             let ret = match (&self.current_prekey, &self.prev_prekey) {
                 (None, None) => 0u8.encode(writer)?,
@@ -868,7 +878,7 @@ mod libolm {
         ed25519_keypair: LibolmEd25519Keypair,
         public_curve25519_key: [u8; 32],
         private_curve25519_key: Box<[u8; 32]>,
-        prekeys: PreKeysArray,
+        prekeys: PickledPreKeys,
         next_prekey_id: u32,
         last_prekey_publish_time: Timestamp,
         one_time_keys: Vec<OneTimeKey>,
@@ -889,17 +899,15 @@ mod libolm {
         }
     }
 
-    impl TryFrom<&PreKey> for LibolmPrekey {
-        type Error = ();
-
-        fn try_from(key: &PreKey) -> Result<Self, ()> {
-            Ok(LibolmPrekey {
+    impl From<&PreKey> for PickledPreKey {
+        fn from(key: &PreKey) -> Self {
+            PickledPreKey {
                 key_id: key.key_id,
                 published: key.published,
                 public_key: key.public_key().to_bytes(),
                 private_key: key.secret_key().to_bytes(),
                 signature: key.signature,
-            })
+            }
         }
     }
 
@@ -934,13 +942,9 @@ mod libolm {
 
             let next_key_id = account.one_time_keys.next_key_id.try_into().unwrap_or_default();
 
-            let prekeys = PreKeysArray {
-                current_prekey: account
-                    .prekeys
-                    .current_prekey
-                    .as_ref()
-                    .and_then(|p| p.try_into().ok()),
-                prev_prekey: account.prekeys.prev_prekey.as_ref().and_then(|p| p.try_into().ok()),
+            let prekeys = PickledPreKeys {
+                current_prekey: account.prekeys.current_prekey.as_ref().map(|p| p.into()),
+                prev_prekey: account.prekeys.prev_prekey.as_ref().map(|p| p.into()),
             };
 
             Self {
@@ -953,9 +957,7 @@ mod libolm {
                 private_curve25519_key: account.diffie_hellman_key.secret_key().to_bytes(),
                 prekeys,
                 next_prekey_id: account.prekeys.next_prekey_id,
-                last_prekey_publish_time: Timestamp(
-                    account.prekeys.last_prekey_publish_time.into(),
-                ),
+                last_prekey_publish_time: Timestamp(account.prekeys.last_prekey_publish_time),
                 one_time_keys,
                 fallback_keys,
                 next_key_id,
@@ -1174,7 +1176,8 @@ mod dehydrated_device {
                 diffie_hellman_key: Curve25519Keypair::from_secret_key(
                     &pickle.private_curve25519_key,
                 ),
-                //FIXME: add X3DH support for dehydrated devices
+                // Comm doesn't use dehydrated devices, so we skipped adding X3DH support for it.
+                // If we ever want to use dehydrated devices, we'll need to fix this line.
                 prekeys: PreKeys::new(signing_key),
                 one_time_keys,
                 fallback_keys,
@@ -1248,7 +1251,6 @@ mod test {
         assert!(alice.forget_fallback_key());
     }
 
-    #[test]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     fn vodozemac_libolm_communication() -> Result<()> {
@@ -1413,7 +1415,6 @@ mod test {
         test_vodozemac_communication(true, true)
     }
 
-    #[test]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     fn inbound_session_creation() -> Result<()> {
@@ -1449,7 +1450,6 @@ mod test {
         Ok(())
     }
 
-    #[test]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     fn inbound_session_creation_using_fallback_keys() -> Result<()> {
@@ -1562,7 +1562,6 @@ mod test {
         Ok(())
     }
 
-    #[test]
     #[cfg(feature = "libolm-compat")]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
@@ -1666,7 +1665,6 @@ mod test {
         assert_eq!(key_bytes, decoded_key_bytes);
     }
 
-    #[test]
     #[cfg(feature = "libolm-compat")]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
@@ -1823,7 +1821,6 @@ mod test {
         });
     }
 
-    #[test]
     #[cfg(feature = "libolm-compat")]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
@@ -1879,7 +1876,6 @@ mod test {
         Ok(())
     }
 
-    #[test]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     fn decrypt_with_dehydrated_device() {

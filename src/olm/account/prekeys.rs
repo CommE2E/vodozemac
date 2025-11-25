@@ -90,7 +90,7 @@ impl PreKeys {
         self.last_prekey_publish_time
     }
 
-    pub fn generate_prekey(&mut self, signing_key: Ed25519Keypair) -> bool {
+    pub fn generate_prekey(&mut self, signing_key: Ed25519Keypair) {
         if self.num_prekeys < 2 {
             self.num_prekeys += 1;
         }
@@ -98,7 +98,6 @@ impl PreKeys {
         self.prev_prekey = self.current_prekey.take();
         self.next_prekey_id += 1;
         self.current_prekey = Some(PreKey::new(self.next_prekey_id, signing_key));
-        true
     }
 
     pub fn current_prekey(&self) -> Option<&PreKey> {
@@ -107,9 +106,7 @@ impl PreKeys {
 
     pub fn get_prekey_signature(&self) -> Option<String> {
         self.current_prekey.as_ref().and_then(|prekey| {
-            Ed25519Signature::from_slice(&prekey.signature)
-                .ok()
-                .map(|sig| sig.to_base64())
+            Ed25519Signature::from_slice(&prekey.signature).ok().map(|sig| sig.to_base64())
         })
     }
 

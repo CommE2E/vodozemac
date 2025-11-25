@@ -47,10 +47,6 @@ impl SessionKeys {
     ///
     /// Due to the construction, every session ID is (probabilistically)
     /// globally unique.
-    ///
-    /// This should also include prekey, but Olm is not doing that,
-    /// and to make both libraries compatible, the behaviour needs to
-    /// be maintained.
     pub fn session_id(&self) -> String {
         let sha = Sha256::new();
 
@@ -58,6 +54,7 @@ impl SessionKeys {
             .chain_update(self.identity_key.as_bytes())
             .chain_update(self.base_key.as_bytes())
             .chain_update(self.one_time_key.as_bytes())
+            .chain_update(self.prekey.as_bytes())
             .finalize();
 
         base64_encode(digest)
@@ -75,7 +72,6 @@ impl std::fmt::Debug for SessionKeys {
     }
 }
 
-#[cfg(test)]
 #[cfg(any())]
 mod test {
     use insta::assert_debug_snapshot;

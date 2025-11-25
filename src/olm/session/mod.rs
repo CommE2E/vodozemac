@@ -37,7 +37,7 @@ use super::{
     SessionConfig,
     session_config::Version,
     session_keys::SessionKeys,
-    shared_secret::{RemoteShared3DHSecret, Shared3DHSecret},
+    shared_secret::{RemoteSharedX3DHSecret, SharedX3DHSecret},
 };
 #[cfg(feature = "low-level-api")]
 use crate::hazmat::olm::MessageKey;
@@ -97,7 +97,6 @@ impl ChainStore {
         self.inner.is_empty()
     }
 
-    #[cfg(test)]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     pub const fn len(&self) -> usize {
@@ -170,7 +169,7 @@ impl Debug for Session {
 impl Session {
     pub(super) fn new(
         config: SessionConfig,
-        shared_secret: Shared3DHSecret,
+        shared_secret: SharedX3DHSecret,
         session_keys: SessionKeys,
     ) -> Self {
         let local_ratchet = DoubleRatchet::active(shared_secret);
@@ -185,7 +184,7 @@ impl Session {
 
     pub(super) fn new_remote(
         config: SessionConfig,
-        shared_secret: RemoteShared3DHSecret,
+        shared_secret: RemoteSharedX3DHSecret,
         remote_ratchet_key: Curve25519PublicKey,
         session_keys: SessionKeys,
     ) -> Self {
@@ -527,7 +526,6 @@ impl From<SessionPickle> for Session {
     }
 }
 
-#[cfg(test)]
 #[cfg(any())]
 #[ignore = "libolm in Rust version does not support X3DH"]
 mod test {

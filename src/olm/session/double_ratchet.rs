@@ -23,7 +23,7 @@ use super::{
     receiver_chain::ReceiverChain,
     root_key::{RemoteRootKey, RootKey},
 };
-use crate::olm::{messages::Message, shared_secret::Shared3DHSecret};
+use crate::olm::{messages::Message, shared_secret::SharedX3DHSecret};
 
 /// The sender side of a double-ratchet implementation.
 ///
@@ -71,7 +71,7 @@ impl DoubleRatchet {
 
     /// Create a new `DoubleRatchet` instance, based on a newly-calculated
     /// shared secret.
-    pub fn active(shared_secret: Shared3DHSecret) -> Self {
+    pub fn active(shared_secret: SharedX3DHSecret) -> Self {
         let (root_key, chain_key) = shared_secret.expand();
 
         let root_key = RootKey::new(root_key);
@@ -427,7 +427,6 @@ mod test {
         );
     }
 
-    #[test]
     #[cfg(any())]
     #[ignore = "libolm in Rust version does not support X3DH"]
     fn ratchet_counts_for_imported_session() {

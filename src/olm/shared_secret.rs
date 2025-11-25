@@ -39,13 +39,13 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{Curve25519PublicKey as PublicKey, types::Curve25519SecretKey as StaticSecret};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Shared3DHSecret {
+pub struct SharedX3DHSecret {
     secret: Box<[u8; 128]>,
     secret_length: usize,
 }
 
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct RemoteShared3DHSecret {
+pub struct RemoteSharedX3DHSecret {
     secret: Box<[u8; 128]>,
     secret_length: usize,
 }
@@ -90,7 +90,7 @@ fn merge_secrets(
     secret
 }
 
-impl RemoteShared3DHSecret {
+impl RemoteSharedX3DHSecret {
     pub(crate) fn new(
         identity_key: &StaticSecret,
         one_time_key: &StaticSecret,
@@ -99,6 +99,10 @@ impl RemoteShared3DHSecret {
         pre_key_secret: &StaticSecret,
         olm_compatibility_mode: bool,
     ) -> Self {
+        // Check if the sender used prekey as OTK by comparing their bytes.
+        // If OTK == prekey, the sender didn't have an OTK available and used
+        // the prekey as OTK instead.
+        // This is for compatibility with our Olm fork.
         let using_prekey_as_otk =
             PublicKey::from(one_time_key).to_bytes() == PublicKey::from(pre_key_secret).to_bytes();
 
@@ -132,7 +136,7 @@ impl RemoteShared3DHSecret {
     }
 }
 
-impl Shared3DHSecret {
+impl SharedX3DHSecret {
     pub(crate) fn new(
         identity_key: &StaticSecret,
         one_time_key: &ReusableSecret,
@@ -141,10 +145,10 @@ impl Shared3DHSecret {
         remote_prekey: &PublicKey,
         olm_compatibility_mode: bool,
     ) -> Self {
-        let bob_one_time_key = remote_one_time_key.unwrap_or_else(|| *remote_prekey);
-        let first_secret = identity_key.diffie_hellman(&bob_one_time_key);
+        let unwrapped_remote_one_time_key = remote_one_time_key.unwrap_or_else(|| *remote_prekey);
+        let first_secret = identity_key.diffie_hellman(&unwrapped_remote_one_time_key);
         let second_secret = one_time_key.diffie_hellman(&remote_identity_key.inner);
-        let third_secret = one_time_key.diffie_hellman(&bob_one_time_key.inner);
+        let third_secret = one_time_key.diffie_hellman(&unwrapped_remote_one_time_key.inner);
         let fourth_secret = match remote_one_time_key {
             None => None,
             Some(_) => one_time_key.diffie_hellman(&remote_prekey.inner).into(),
@@ -176,7 +180,7 @@ mod test {
     use rand::thread_rng;
     use x25519_dalek::ReusableSecret;
 
-    use super::{RemoteShared3DHSecret, Shared3DHSecret};
+    use super::{RemoteSharedX3DHSecret, SharedX3DHSecret};
     use crate::{Curve25519PublicKey as PublicKey, types::Curve25519SecretKey as StaticSecret};
 
     #[test]
@@ -191,7 +195,7 @@ mod test {
 
         let bob_prekey = StaticSecret::new();
 
-        let alice_secret = Shared3DHSecret::new(
+        let alice_secret = SharedX3DHSecret::new(
             &alice_identity,
             &alice_one_time,
             &PublicKey::from(&bob_identity),
@@ -200,7 +204,7 @@ mod test {
             false,
         );
 
-        let bob_secret = RemoteShared3DHSecret::new(
+        let bob_secret = RemoteSharedX3DHSecret::new(
             &bob_identity,
             &bob_one_time,
             &PublicKey::from(&alice_identity),
@@ -230,7 +234,7 @@ mod test {
 
         let bob_prekey = StaticSecret::new();
 
-        let alice_secret = Shared3DHSecret::new(
+        let alice_secret = SharedX3DHSecret::new(
             &alice_identity,
             &alice_one_time,
             &PublicKey::from(&bob_identity),
@@ -239,7 +243,7 @@ mod test {
             true,
         );
 
-        let bob_secret = RemoteShared3DHSecret::new(
+        let bob_secret = RemoteSharedX3DHSecret::new(
             &bob_identity,
             &bob_one_time,
             &PublicKey::from(&alice_identity),
