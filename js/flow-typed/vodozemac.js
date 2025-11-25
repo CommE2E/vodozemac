@@ -36,7 +36,6 @@ declare module 'vodozemac' {
       one_time_key: ?string,
       pre_key: string,
       pre_key_signature: string,
-      olm_compatibility_mode: boolean,
     ): Session;
 
     create_inbound_session(

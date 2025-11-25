@@ -189,7 +189,6 @@ impl Account {
         one_time_key: Option<Curve25519PublicKey>,
         prekey: Curve25519PublicKey,
         prekey_signature: String,
-        olm_compatibility_mode: bool,
     ) -> Result<Session, SignatureError> {
         let rng = thread_rng();
 
@@ -205,7 +204,6 @@ impl Account {
             &identity_key,
             &one_time_key,
             &prekey,
-            olm_compatibility_mode,
         );
 
         let session_keys = SessionKeys {
@@ -296,46 +294,32 @@ impl Account {
                 prekey: pre_key_message.prekey(),
             };
 
+            // Construct a X3DH shared secret from the various curve25519 keys.
+            let shared_secret = RemoteSharedX3DHSecret::new(
+                self.diffie_hellman_key.secret_key(),
+                private_otk,
+                &pre_key_message.identity_key(),
+                &pre_key_message.base_key(),
+                private_prekey,
+            );
+
             let config = if pre_key_message.message.mac_truncated() {
                 SessionConfig::version_1()
             } else {
                 SessionConfig::version_2()
             };
 
-            let try_decrypt_with_mode =
-                |olm_compatibility_mode: bool| -> Result<(Session, Vec<u8>), DecryptionError> {
-                    // Construct a X3DH shared secret from the various curve25519 keys.
-                    let shared_secret = RemoteSharedX3DHSecret::new(
-                        self.diffie_hellman_key.secret_key(),
-                        private_otk,
-                        &pre_key_message.identity_key(),
-                        &pre_key_message.base_key(),
-                        private_prekey,
-                        olm_compatibility_mode,
-                    );
+            // Create a Session, AKA a double ratchet, this one will have an
+            // inactive sending chain until we decide to encrypt a message.
+            let mut session = Session::new_remote(
+                config,
+                shared_secret,
+                pre_key_message.message.ratchet_key,
+                session_keys,
+            );
 
-                    // Create a Session, AKA a double ratchet, this one will have an
-                    // inactive sending chain until we decide to encrypt a message.
-                    let mut session = Session::new_remote(
-                        config,
-                        shared_secret,
-                        pre_key_message.message.ratchet_key,
-                        session_keys,
-                    );
-
-                    // Decrypt the message to check if the Session is actually valid.
-                    let plaintext = session.decrypt_decoded(&pre_key_message.message)?;
-                    Ok((session, plaintext))
-                };
-
-            // COMPATIBILITY: Comm/olm has a bug where it only uses 3 or 4 bytes
-            // of the shared secret for HKDF instead of the full 96 or 128 bytes.
-            // Temporary replicate this bug for compatibility.
-            // Try with full secret length first (correct implementation)
-            // If decryption fails, fall back to olm_compatibility_mode (short secret)
-            let result = try_decrypt_with_mode(false).or_else(|_| try_decrypt_with_mode(true))?;
-
-            let (session, plaintext) = result;
+            // Decrypt the message to check if the Session is actually valid.
+            let plaintext = session.decrypt_decoded(&pre_key_message.message)?;
 
             // We only drop the one-time key now, this is why we can't use a
             // one-time key type that takes `self`. If we didn't do this,
@@ -1326,7 +1310,7 @@ mod test {
         Ok(())
     }
 
-    fn test_vodozemac_communication(olm_compatibility_mode: bool, without_otk: bool) -> Result<()> {
+    fn test_vodozemac_communication(without_otk: bool) -> Result<()> {
         // Both of these are vodozemac accounts.
         let alice = Account::new();
         let mut bob = Account::new();
@@ -1354,7 +1338,6 @@ mod test {
             otk,
             prekey,
             prekey_signature,
-            olm_compatibility_mode,
         )?;
 
         if !without_otk {
@@ -1406,22 +1389,12 @@ mod test {
 
     #[test]
     fn vodozemac_vodozemac_communication() -> Result<()> {
-        test_vodozemac_communication(false, false)
-    }
-
-    #[test]
-    fn vodozemac_vodozemac_communication_olm_compatibility() -> Result<()> {
-        test_vodozemac_communication(true, false)
+        test_vodozemac_communication(false)
     }
 
     #[test]
     fn vodozemac_vodozemac_communication_without_otk() -> Result<()> {
-        test_vodozemac_communication(false, true)
-    }
-
-    #[test]
-    fn vodozemac_vodozemac_communication_without_otk_olm_compatibility() -> Result<()> {
-        test_vodozemac_communication(true, true)
+        test_vodozemac_communication(true)
     }
 
     #[cfg(any())]
@@ -1696,9 +1669,8 @@ mod test {
         Ok(())
     }
 
-    fn test_invalid_session_creation_does_not_remove_otk(
-        olm_compatibility_mode: bool,
-    ) -> Result<()> {
+    #[test]
+    fn invalid_session_creation_does_not_remove_otk() -> Result<()> {
         let mut alice = Account::new();
         let malory = Account::new();
         alice.generate_one_time_keys(1);
@@ -1713,7 +1685,6 @@ mod test {
             Some(*alice.one_time_keys().values().next().expect("Should have one-time key")),
             pre_key,
             prekey_signature,
-            olm_compatibility_mode,
         )?;
 
         let message = session.encrypt("Test");
@@ -1746,16 +1717,6 @@ mod test {
     }
 
     #[test]
-    fn invalid_session_creation_does_not_remove_otk() -> Result<()> {
-        test_invalid_session_creation_does_not_remove_otk(false)
-    }
-
-    #[test]
-    fn invalid_session_creation_does_not_remove_otk_olm_compatibility() -> Result<()> {
-        test_invalid_session_creation_does_not_remove_otk(true)
-    }
-
-    #[test]
     fn wrong_prekey_signature_fails_outbound_creation() -> Result<()> {
         let alice = Account::new();
         let bob = Account::new();
@@ -1771,7 +1732,6 @@ mod test {
             None,
             pre_key,
             wrong_signature,
-            false,
         ) {
             Err(SignatureError::Signature(..)) => {}
             e => bail!("Expected a verification error, got {:?}", e),
@@ -1798,7 +1758,6 @@ mod test {
             None,
             bob_prekey,
             bob_prekey_sig,
-            false,
         )?;
 
         let message = session.encrypt("Test");

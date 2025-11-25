@@ -60,7 +60,6 @@ describe('vodozemac utils', () => {
           bobOneTimeKeys[otk_id],
           bobAccount.prekey() ?? '',
           bobAccount.sign(randomString(32)),
-          false
         );
       } catch (error) {
         expect(error.message).toContain('The signature was invalid');
@@ -74,7 +73,6 @@ describe('vodozemac utils', () => {
           bobOneTimeKeys[otk_id],
           bobAccount.prekey() ?? '',
           randomString(43),
-          false,
         );
       } catch (error) {
         expect(error.message).toContain('The signature couldn\'t be decoded');
@@ -88,7 +86,6 @@ describe('vodozemac utils', () => {
       bobOneTimeKeys[otk_id],
       bobAccount.prekey() ?? '',
       String(bobAccount.prekey_signature()),
-      false
     );
 
     return session;
@@ -104,7 +101,6 @@ describe('vodozemac utils', () => {
       null,
       bobAccount.prekey() ?? '',
       String(bobAccount.prekey_signature()),
-      false
     );
 
     return session;

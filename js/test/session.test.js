@@ -20,7 +20,6 @@ function create_session() {
     otk,
     bob.prekey() ?? '',
     bob.prekey_signature() ?? '',
-    false
   );
 
   return { alice, bob, session };
@@ -103,7 +102,7 @@ describe('Vodozemac Session', function () {
   it('should throw an exception if keys invalid', function () {
     const { alice, bob } = create_session();
 
-    expect(() => alice.create_outbound_session('a', 'b', 'c', 'd', 'e', false)).toThrow();
+    expect(() => alice.create_outbound_session('a', 'b', 'c', 'd', 'e')).toThrow();
 
     const message = new OlmMessage(0, "");
     expect(() =>

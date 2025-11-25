@@ -101,8 +101,7 @@ describe('Olm/Vodozemac is_sender_chain_empty behavior', () => {
       bobAccount.ed25519_key,
       bobOneTimeKey,
       bobPrekey,
-      bobPrekeySignature,
-      false
+      bobPrekeySignature
     );
 
     // Initial state - Both ratchets should start with empty sender chains

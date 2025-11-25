@@ -103,7 +103,7 @@ describe("vodozemac", function () {
     if (!bobPreKeySignature) throw new Error('prekey_signature is required');
 
     aliceSession = aliceAccount.create_outbound_session(
-      bobIdKey, bobSigningKey, oneTimeKey, bobPrekey, bobPreKeySignature, false
+      bobIdKey, bobSigningKey, oneTimeKey, bobPrekey, bobPreKeySignature
     );
 
     testEncryptDecrypt();
@@ -120,7 +120,7 @@ describe("vodozemac", function () {
     if (!bobPreKeySignature) throw new Error('prekey_signature is required');
 
     aliceSession = aliceAccount.create_outbound_session(
-      bobIdKey, bobSigningKey, null, bobPrekey, bobPreKeySignature, false
+      bobIdKey, bobSigningKey, null, bobPrekey, bobPreKeySignature
     );
 
     testEncryptDecrypt();
@@ -142,7 +142,7 @@ describe("vodozemac", function () {
     if (!bobPreKeySignature) throw new Error('prekey_signature is required');
 
     aliceSession = aliceAccount.create_outbound_session(
-      bobIdKey, bobSigningKey, oneTimeKey, bobPrekey, bobPreKeySignature, false
+      bobIdKey, bobSigningKey, oneTimeKey, bobPrekey, bobPreKeySignature
     );
     expect(aliceSession.is_sender_chain_empty()).toEqual(false);
     expect(aliceSession.has_received_message()).toEqual(false);
