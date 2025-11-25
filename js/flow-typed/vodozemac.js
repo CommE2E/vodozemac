@@ -14,7 +14,7 @@ declare module '../wasm/node/vodozemac.js' {
     max_number_of_one_time_keys(): number;
     generate_one_time_keys(count: number): void;
 
-    generate_prekey(): boolean;
+    generate_prekey(): void;
     prekey(): ?string;
     unpublished_prekey(): ?string;
     prekey_signature(): ?string;
@@ -68,5 +68,16 @@ declare module '../wasm/node/vodozemac.js' {
   declare export class InboundCreationResult {
     +plaintext: string;
     into_session(): Session;
+  }
+
+  declare export class Utility {
+    constructor(): void;
+    free(): void;
+    sha256(input: string | Uint8Array): string;
+    ed25519_verify(
+      key: string,
+      message: string | Uint8Array,
+      signature: string,
+    ): void;
   }
 }

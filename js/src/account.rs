@@ -4,7 +4,7 @@ use crate::error_to_js;
 use vodozemac::olm;
 use wasm_bindgen::prelude::*;
 
-use super::{OlmMessage, session::Session};
+use super::{session::Session, OlmMessage};
 
 #[wasm_bindgen]
 pub struct Account {
@@ -104,7 +104,7 @@ impl Account {
         self.inner.mark_prekey_as_published()
     }
 
-    pub fn generate_prekey(&mut self) -> bool {
+    pub fn generate_prekey(&mut self) {
         self.inner.generate_prekey()
     }
 
@@ -117,11 +117,19 @@ impl Account {
     }
 
     pub fn prekey(&self) -> Option<String> {
-        if let Some(key) = self.inner.prekey() { Some(key.to_base64()) } else { None }
+        if let Some(key) = self.inner.prekey() {
+            Some(key.to_base64())
+        } else {
+            None
+        }
     }
 
     pub fn unpublished_prekey(&self) -> Option<String> {
-        if let Some(key) = self.inner.unpublished_prekey() { Some(key.to_base64()) } else { None }
+        if let Some(key) = self.inner.unpublished_prekey() {
+            Some(key.to_base64())
+        } else {
+            None
+        }
     }
 
     pub fn prekey_signature(&self) -> Option<String> {

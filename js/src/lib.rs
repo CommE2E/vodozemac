@@ -2,8 +2,11 @@ mod account;
 
 mod session;
 
+mod utility;
+
 pub use account::Account;
 pub use session::Session;
+pub use utility::Utility;
 
 use wasm_bindgen::prelude::*;
 

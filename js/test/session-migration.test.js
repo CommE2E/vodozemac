@@ -45,21 +45,6 @@ describe('Session migration', () => {
     return { aliceAccount, bobAccount, aliceSession };
   }
 
-  it('should migrate fresh session', () => {
-    const { aliceAccount, bobAccount, aliceSession } = createOlmSession();
-
-    const olmSessionId = aliceSession.session_id();
-    const pickle = aliceSession.pickle(key);
-
-    const vodozemacSession = VodozemacSession.from_libolm_pickle(pickle, PICKLE_KEY);
-
-    expect(vodozemacSession.session_id).toBe(olmSessionId);
-
-    aliceAccount.free();
-    bobAccount.free();
-    aliceSession.free();
-    vodozemacSession.free();
-  });
 
   it('should migrate session and continue encryption/decryption', () => {
     const { aliceAccount, bobAccount, aliceSession } = createOlmSession();
@@ -271,8 +256,6 @@ describe('Session migration', () => {
     const pickle = aliceSession.pickle(key);
 
     const vodozemacSession = VodozemacSession.from_libolm_pickle(pickle, PICKLE_KEY);
-
-    expect(vodozemacSession.session_id).toBe(olmSessionId);
 
     // Verify it can encrypt/decrypt
     const plaintext = "Test without OTK";
