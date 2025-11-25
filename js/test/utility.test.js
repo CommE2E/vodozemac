@@ -1,7 +1,7 @@
 // @flow
 
-const { Account, Utility } = require('../wasm/node/vodozemac.js');
-const Olm = require('@commapp/olm');
+import Olm from '@commapp/olm';
+import {Account, Utility} from 'vodozemac';
 
 describe('Vodozemac Utility', function () {
   let utility;

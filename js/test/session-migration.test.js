@@ -1,8 +1,7 @@
 // @flow
 
-const Olm = require('@commapp/olm');
-const { Account: VodozemacAccount, Session: VodozemacSession } = require('../wasm/node/vodozemac.js');
-const { OlmMessage } = require("../wasm/node/vodozemac.js");
+import Olm from '@commapp/olm';
+import {Account as VodozemacAccount, Session as VodozemacSession, OlmMessage} from 'vodozemac';
 
 const key = 'abcdef0123456789ABCDEF0123456789';
 const PICKLE_KEY = new TextEncoder().encode(key);

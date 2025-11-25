@@ -1,7 +1,7 @@
 // @flow
 
-const Olm = require('@commapp/olm');
-const { Account } = require('../wasm/node/vodozemac.js');
+import Olm from '@commapp/olm';
+import {Account} from 'vodozemac';
 
 describe('Olm/Vodozemac is_sender_chain_empty behavior', () => {
 

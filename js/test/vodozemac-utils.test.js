@@ -1,6 +1,6 @@
 // @flow
 
-const { Account, Session, OlmMessage } = require('../wasm/node/vodozemac.js');
+import {Account, Session, OlmMessage} from 'vodozemac';
 
 // Tests inspired by olm-utils.test.js in CommE2E/comm repo to make sure
 // Vodozemac API is the same.

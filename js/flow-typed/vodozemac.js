@@ -1,6 +1,6 @@
 // @flow
 
-declare module '../wasm/node/vodozemac.js' {
+declare module 'vodozemac' {
   declare export class Account {
     constructor(): Account;
     free(): void;

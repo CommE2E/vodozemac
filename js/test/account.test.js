@@ -1,6 +1,6 @@
 // @flow
 
-const { Account } = require('../wasm/node/vodozemac.js');
+import {Account} from 'vodozemac';
 
 const PICKLE_KEY = new TextEncoder().encode('abcdef0123456789ABCDEF0123456789');
 
