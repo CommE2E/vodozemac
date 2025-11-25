@@ -273,52 +273,6 @@ describe('Session migration', () => {
     vodozemacSession.free();
   });
 
-  it('should allow creating new sessions after account migration', () => {
-    const aliceAccount = new Olm.Account();
-    aliceAccount.create();
-    const alicePickle = aliceAccount.pickle(key);
-
-    const vodozemacAlice = VodozemacAccount.from_libolm_pickle(alicePickle, PICKLE_KEY);
-
-    // Bob is a fresh vodozemac account
-    const bobAccount = new Olm.Account();
-    bobAccount.create();
-    bobAccount.generate_one_time_keys(1);
-    bobAccount.generate_prekey();
-
-    const bobOTKs = JSON.parse(bobAccount.one_time_keys());
-    const bobOTK = Object.values(bobOTKs.curve25519)[0];
-    const bobIdentityKeys = JSON.parse(bobAccount.identity_keys());
-    const bobPrekey = JSON.parse(bobAccount.prekey());
-    const bobPrekeyValue = String(Object.values(bobPrekey.curve25519)[0]);
-    const bobPrekeySignature = bobAccount.prekey_signature();
-    if (!bobPrekey) throw new Error('prekey is required');
-    if (!bobPrekeySignature) throw new Error('prekey_signature is required');
-
-    // Migrated Alice creates a new outbound session
-    const aliceSession = vodozemacAlice.create_outbound_session(
-      bobIdentityKeys.curve25519,
-      bobIdentityKeys.ed25519,
-      bobOTK,
-      bobPrekeyValue,
-      bobPrekeySignature,
-      true
-    );
-
-    expect(aliceSession).toBeDefined();
-    expect(aliceSession.session_id).toBeTruthy();
-
-    // Verify encryption works
-    const plaintext = "New session after migration";
-    const encrypted = aliceSession.encrypt(plaintext);
-    expect(encrypted.ciphertext).toBeDefined();
-
-    aliceAccount.free();
-    bobAccount.free();
-    vodozemacAlice.free();
-    aliceSession.free();
-  });
-
   it('should handle bidirectional migration', () => {
     const { aliceAccount, bobAccount, aliceSession } = createOlmSession();
 

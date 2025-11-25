@@ -67,8 +67,7 @@
 //!         bob.ed25519_key(),
 //!         Some(bob_otk),
 //!         bob_pre_key,
-//!         bob_pre_key_signature,
-//!         false
+//!         bob_pre_key_signature
 //!     )?;
 //!
 //!     bob.mark_keys_as_published();
