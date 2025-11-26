@@ -1,5 +1,3 @@
 module.exports = {
-  presets: [
-    ['@babel/preset-flow', { modules: false }]
-  ],
+  presets: ['@babel/preset-flow'],
 };

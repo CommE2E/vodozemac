@@ -940,7 +940,10 @@ mod libolm {
                     .and_then(|f| f.try_into().ok()),
             };
 
-            let next_key_id = account.one_time_keys.next_key_id.try_into().unwrap_or_default();
+            let mut next_key_id = account.one_time_keys.next_key_id.try_into().unwrap_or_default();
+            // vodozemac stores the next available key ID, but libolm stores the last
+            // used ID. Subtract 1 to convert from "next available" to "last used".
+            next_key_id -= 1;
 
             let prekeys = PickledPreKeys {
                 current_prekey: account.prekeys.current_prekey.as_ref().map(|p| p.into()),
@@ -978,6 +981,9 @@ mod libolm {
             }
 
             one_time_keys.next_key_id = pickle.next_key_id.into();
+            // libolm stores the last used key ID, but vodozemac expects the next
+            // available ID. Add 1 to convert from "last used" to "next available".
+            one_time_keys.next_key_id += 1;
 
             let fallback_keys = FallbackKeys {
                 key_id: pickle

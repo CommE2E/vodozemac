@@ -1,6 +1,6 @@
 // @flow
 
-import {Account, Session, OlmMessage} from 'vodozemac';
+import vodozemacInit, {Account, Session, OlmMessage} from 'vodozemac';
 
 // Tests inspired by olm.spec.js in CommE2E/olm repo to make sure
 // Vodozemac API is the same.
@@ -8,8 +8,12 @@ import {Account, Session, OlmMessage} from 'vodozemac';
 // used anymore.
 
 describe("vodozemac", function () {
-  var aliceAccount = new Account(), bobAccount = new Account();
-  var aliceSession = new Session(), bobSession = new Session();
+  beforeAll(async () => {
+    await vodozemacInit();
+  });
+
+  var aliceAccount: any, bobAccount: any;
+  var aliceSession: any, bobSession: any;
 
   beforeEach(function () {
     aliceAccount = new Account();

@@ -1,12 +1,16 @@
 // @flow
 
-import {Account} from 'vodozemac';
+import vodozemacInit, {Account} from 'vodozemac';
 
 const PICKLE_KEY = new TextEncoder().encode('abcdef0123456789ABCDEF0123456789');
 
 // The set of tests was developed when implementing bindings.
 
 describe('Vodozemac Account', function () {
+  beforeAll(async () => {
+    await vodozemacInit();
+  });
+
   it('should be created successfully with identity keys', function () {
     const account = new Account();
     expect(account.ed25519_key).toBeDefined();

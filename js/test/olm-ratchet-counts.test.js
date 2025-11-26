@@ -1,12 +1,13 @@
 // @flow
 
 import Olm from '@commapp/olm';
-import {Account} from 'vodozemac';
+import vodozemacInit, {Account} from 'vodozemac';
 
 describe('Olm/Vodozemac is_sender_chain_empty behavior', () => {
 
   beforeAll(async () => {
     await Olm.init();
+    await vodozemacInit();
   });
 
   it('should match ratchet_counts test expectations for Olm', () => {

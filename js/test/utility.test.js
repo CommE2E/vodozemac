@@ -1,13 +1,14 @@
 // @flow
 
 import Olm from '@commapp/olm';
-import {Account, Utility} from 'vodozemac';
+import vodozemacInit, {Account, Utility} from 'vodozemac';
 
 describe('Vodozemac Utility', function () {
   let utility;
   let olmUtility;
 
   beforeEach(async function () {
+    await vodozemacInit();
     utility = new Utility();
     await Olm.init();
     olmUtility = new Olm.Utility();
@@ -218,8 +219,8 @@ describe('Vodozemac Utility', function () {
     const messageBytes = new TextEncoder().encode('Binary message test');
     const olmSignature = olmAccount.sign(messageBytes);
 
-    //TODO: this fails
-    // Vodozemac should verify Olm's signature on binary data
+    //FIXME: this fails, but matches Olm behaviour
+    //Vodozemac should verify Olm's signature on binary data
     expect(() => {
       utility.ed25519_verify(ed25519Key, messageBytes, olmSignature);
     }).not.toThrow();

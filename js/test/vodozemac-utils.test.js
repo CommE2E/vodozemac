@@ -1,6 +1,6 @@
 // @flow
 
-import {Account, Session, OlmMessage} from 'vodozemac';
+import vodozemacInit, {Account, Session, OlmMessage} from 'vodozemac';
 
 // Tests inspired by olm-utils.test.js in CommE2E/comm repo to make sure
 // Vodozemac API is the same.
@@ -8,6 +8,10 @@ import {Account, Session, OlmMessage} from 'vodozemac';
 // used anymore.
 
 describe('vodozemac utils', () => {
+  beforeAll(async () => {
+    await vodozemacInit();
+  });
+
   const alphabet =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ';
 

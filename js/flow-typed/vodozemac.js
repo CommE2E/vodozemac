@@ -1,6 +1,9 @@
 // @flow
 
 declare module 'vodozemac' {
+  declare export default function init(opts?: Object): Promise<void>;
+  declare export function initSync(options: { module: Buffer | Uint8Array }): void;
+
   declare export class Account {
     constructor(): Account;
     free(): void;
@@ -60,12 +63,15 @@ declare module 'vodozemac' {
 
   declare export class OlmMessage {
     constructor(message_type: number, ciphertext: string): OlmMessage;
+    free(): void;
 
-    ciphertext: string;
-    message_type: 0 | 1, // 0: PreKey, 1: Message
+    +ciphertext: string;
+    +message_type: 0 | 1, // 0: PreKey, 1: Message
   }
 
   declare export class InboundCreationResult {
+    free(): void;
+
     +plaintext: string;
     into_session(): Session;
   }
@@ -73,6 +79,7 @@ declare module 'vodozemac' {
   declare export class Utility {
     constructor(): void;
     free(): void;
+
     sha256(input: string | Uint8Array): string;
     ed25519_verify(
       key: string,

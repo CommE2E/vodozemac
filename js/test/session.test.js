@@ -1,6 +1,6 @@
 // @flow
 
-import {Account, Session, OlmMessage} from 'vodozemac';
+import vodozemacInit, {Account, Session, OlmMessage} from 'vodozemac';
 
 const PICKLE_KEY = new TextEncoder().encode('abcdef0123456789ABCDEF0123456789');
 
@@ -27,6 +27,10 @@ function create_session() {
 }
 
 describe('Vodozemac Session', function () {
+  beforeAll(async () => {
+    await vodozemacInit();
+  });
+
   it('should be created successfully', function () {
     const { session } = create_session();
     expect(session.session_id).toBeTruthy();

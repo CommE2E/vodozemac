@@ -1,7 +1,7 @@
 // @flow
 
 import Olm from '@commapp/olm';
-import {Account as VodozemacAccount, Session as VodozemacSession, OlmMessage} from 'vodozemac';
+import vodozemacInit, {Account as VodozemacAccount, Session as VodozemacSession, OlmMessage} from 'vodozemac';
 
 
 const key = 'DEFAULT_PICKLE_KEY_1234567890___';
@@ -12,6 +12,7 @@ const PICKLE_KEY = fullKeyBytes;
 describe('Account migration', () => {
   beforeAll(async () => {
     await Olm.init();
+    await vodozemacInit();
   });
 
 
@@ -243,27 +244,13 @@ describe('Account migration', () => {
     const vodozemacAccount = VodozemacAccount.from_libolm_pickle(pickle, PICKLE_KEY);
 
     expect(vodozemacAccount.one_time_keys().size).toBe(5);
-
-    // KNOWN BUG: Key ID collision during key generation after migration
-    // libolm generates keys with IDs 1-5, so next_key_id should be 6.
-    // However, libolm's pickle stores next_key_id=5 (last used ID, not next available).
-    // When vodozemac generates 3 new keys starting from ID 5, it creates:
-    //   - Key ID 5 (OVERWRITES existing key ID 5)
-    //   - Key ID 6 (new)
-    //   - Key ID 7 (new)
-    // Result: 7 keys total instead of expected 8 (5 original + 3 new)
-    //
-    // To demonstrate the collision:
+    
     const keysBefore = Object.keys(Object.fromEntries(vodozemacAccount.one_time_keys())).sort();
     vodozemacAccount.generate_one_time_keys(3);
     const keysAfter = Object.keys(Object.fromEntries(vodozemacAccount.one_time_keys())).sort();
 
-    // Expected 8 (5+3), but get 7 due to ID collision
-    expect(vodozemacAccount.one_time_keys().size).toBe(7); // BUG: should be 8
-
-    // Show the collision: keysBefore has 5 keys, keysAfter has 7 keys (not 8)
-    expect(keysBefore.length).toBe(5);
-    expect(keysAfter.length).toBe(7);
+    // Expected 8 (5+3)
+    expect(vodozemacAccount.one_time_keys().size).toBe(8);
 
     // Mark as published and verify
     vodozemacAccount.mark_keys_as_published();

@@ -1,7 +1,7 @@
 // @flow
 
 import Olm from '@commapp/olm';
-import {Account as VodozemacAccount, Session as VodozemacSession, OlmMessage} from 'vodozemac';
+import vodozemacInit, {Account as VodozemacAccount, Session as VodozemacSession, OlmMessage} from 'vodozemac';
 
 const PICKLE_KEY_STR = 'abcdef0123456789ABCDEF0123456789';
 const PICKLE_KEY = new TextEncoder().encode(PICKLE_KEY_STR);
@@ -9,6 +9,7 @@ const PICKLE_KEY = new TextEncoder().encode(PICKLE_KEY_STR);
 describe('Cross-compatibility: Olm <-> Vodozemac Migration', () => {
   beforeAll(async () => {
     await Olm.init();
+    await vodozemacInit();
   });
 
   function createOlmSession() {
