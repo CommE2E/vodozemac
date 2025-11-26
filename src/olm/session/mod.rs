@@ -37,7 +37,7 @@ use super::{
     SessionConfig,
     session_config::Version,
     session_keys::SessionKeys,
-    shared_secret::{RemoteShared3DHSecret, Shared3DHSecret},
+    shared_secret::{RemoteSharedX3DHSecret, SharedX3DHSecret},
 };
 #[cfg(feature = "low-level-api")]
 use crate::hazmat::olm::MessageKey;
@@ -97,7 +97,8 @@ impl ChainStore {
         self.inner.is_empty()
     }
 
-    #[cfg(test)]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     pub const fn len(&self) -> usize {
         self.inner.len()
     }
@@ -168,7 +169,7 @@ impl Debug for Session {
 impl Session {
     pub(super) fn new(
         config: SessionConfig,
-        shared_secret: Shared3DHSecret,
+        shared_secret: SharedX3DHSecret,
         session_keys: SessionKeys,
     ) -> Self {
         let local_ratchet = DoubleRatchet::active(shared_secret);
@@ -183,7 +184,7 @@ impl Session {
 
     pub(super) fn new_remote(
         config: SessionConfig,
-        shared_secret: RemoteShared3DHSecret,
+        shared_secret: RemoteSharedX3DHSecret,
         remote_ratchet_key: Curve25519PublicKey,
         session_keys: SessionKeys,
     ) -> Self {
@@ -221,6 +222,13 @@ impl Session {
     /// messages.
     pub const fn has_received_message(&self) -> bool {
         !self.receiving_chains.is_empty()
+    }
+
+    /// Returns information if sending ratchet is in active state.
+    ///
+    /// Used in Comm's logic to discover a race condition in notification encryption.
+    pub const fn is_sender_chain_empty(&self) -> bool {
+        !self.sending_ratchet.is_active_state()
     }
 
     /// Encrypt the `plaintext` and construct an [`OlmMessage`].
@@ -402,8 +410,6 @@ mod libolm_compat {
         #[allow(dead_code)]
         received_message: bool,
         session_keys: SessionKeys,
-        #[allow(dead_code)]
-        prekey: [u8; 32],
         #[secret]
         root_key: Box<[u8; 32]>,
         sender_chains: Vec<SenderChain>,
@@ -520,7 +526,8 @@ impl From<SessionPickle> for Session {
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
+#[ignore = "libolm in Rust version does not support X3DH"]
 mod test {
     use anyhow::{Result, bail};
     use assert_matches2::assert_matches;

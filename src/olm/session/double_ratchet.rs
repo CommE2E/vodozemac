@@ -23,7 +23,7 @@ use super::{
     receiver_chain::ReceiverChain,
     root_key::{RemoteRootKey, RootKey},
 };
-use crate::olm::{messages::Message, shared_secret::Shared3DHSecret};
+use crate::olm::{messages::Message, shared_secret::SharedX3DHSecret};
 
 /// The sender side of a double-ratchet implementation.
 ///
@@ -71,7 +71,7 @@ impl DoubleRatchet {
 
     /// Create a new `DoubleRatchet` instance, based on a newly-calculated
     /// shared secret.
-    pub fn active(shared_secret: Shared3DHSecret) -> Self {
+    pub fn active(shared_secret: SharedX3DHSecret) -> Self {
         let (root_key, chain_key) = shared_secret.expand();
 
         let root_key = RootKey::new(root_key);
@@ -141,6 +141,13 @@ impl DoubleRatchet {
         };
 
         (Self { inner: DoubleRatchetState::Inactive(ratchet) }, receiver_chain)
+    }
+
+    pub const fn is_active_state(&self) -> bool {
+        match &self.inner {
+            DoubleRatchetState::Inactive(_) => false,
+            DoubleRatchetState::Active(_) => true,
+        }
     }
 }
 
@@ -339,8 +346,20 @@ mod test {
         let bob_otks = bob.generate_one_time_keys(1);
         let bob_otk = bob_otks.created.first().expect("Couldn't get a one-time-key for bob");
         let bob_identity_key = bob.identity_keys().curve25519;
-        let mut alice_session =
-            alice.create_outbound_session(SessionConfig::version_1(), bob_identity_key, *bob_otk);
+        let bob_signing_key = bob.identity_keys().ed25519;
+        let pre_key = bob.prekey().unwrap();
+        let prekey_signature = bob.get_prekey_signature().unwrap();
+        let mut alice_session = alice
+            .create_outbound_session(
+                SessionConfig::version_1(),
+                bob_identity_key,
+                bob_signing_key,
+                Some(*bob_otk),
+                pre_key,
+                prekey_signature,
+                false,
+            )
+            .expect("Couldn't create session");
 
         let message = "It's a secret to everybody";
         let olm_message = alice_session.encrypt(message);
@@ -408,8 +427,8 @@ mod test {
         );
     }
 
-    #[test]
-    #[cfg(feature = "libolm-compat")]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn ratchet_counts_for_imported_session() {
         let (_, _, mut alice_session, bob_libolm_session) =
             crate::olm::session::test::session_and_libolm_pair()

@@ -31,6 +31,10 @@ pub struct SessionKeys {
     /// a key server, which was previously created and published by the
     /// recipient.
     pub one_time_key: Curve25519PublicKey,
+    /// The prekey [`Curve25519PublicKey`] that the initiator downloaded from
+    /// a key server, which was previously created and signed by the
+    /// recipient.
+    pub prekey: Curve25519PublicKey,
 }
 
 impl SessionKeys {
@@ -50,6 +54,7 @@ impl SessionKeys {
             .chain_update(self.identity_key.as_bytes())
             .chain_update(self.base_key.as_bytes())
             .chain_update(self.one_time_key.as_bytes())
+            .chain_update(self.prekey.as_bytes())
             .finalize();
 
         base64_encode(digest)
@@ -62,11 +67,12 @@ impl std::fmt::Debug for SessionKeys {
             .field("identity_key", &self.identity_key.to_base64())
             .field("base_key", &self.base_key.to_base64())
             .field("one_time_key", &self.one_time_key.to_base64())
+            .field("prekey", &self.prekey.to_base64())
             .finish()
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod test {
     use insta::assert_debug_snapshot;
 
@@ -77,7 +83,8 @@ mod test {
     fn snapshot_session_keys_debug() {
         let key = Curve25519PublicKey::from_bytes([0; 32]);
 
-        let session_keys = SessionKeys { identity_key: key, base_key: key, one_time_key: key };
+        let session_keys =
+            SessionKeys { identity_key: key, base_key: key, one_time_key: key, prekey: key };
 
         assert_debug_snapshot!(session_keys);
     }

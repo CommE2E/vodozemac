@@ -159,23 +159,23 @@ mod tests {
     use super::*;
     use crate::run_corpus;
 
-    const PRE_KEY_MESSAGE: &str = "AwoghAEuxPZ+w7M3pgUae4tDNiggUpOsQ/zci457VAti\
-                                   AEYSIO3xOKRDBWKicIfxjSmYCYZ9DD4RMLjvvclbMlE5\
-                                   yIEWGiApLrCr853CKlPpW4Bi7S8ykRcejJ0lq7AfYLXK\
-                                   CjKdHSJPAwoghw3+P+cajhWj9Qzp5g87h+tbpiuh5wEa\
-                                   eUppqmWqug4QASIgRhZ2cgZcIWQbIa23R7U4y1Mo1R/t\
-                                   LCaMU+xjzRV5smGsCrJ6AHwktg";
+    const PRE_KEY_MESSAGE: &str = "Awog43mDpWeuyR2hsTOX9yUgHcb0TwMgmgZji6ao+95QURASIJgIls5evEdYmSCE\
+    IZJuwe3o+4eu1H7RkmnwTN3VrkB6GiDLFN7798Ew1PQd57gXsKJJ2mZqPaIpTVHQF/VQfQH0MCJnBAogZKNwDFq+P9XT7Zd\
+    ljVx9bmsAllDHusNBo7NFUSA9dlAQACIgaPTG49Oav0OOgY5bmUV8bM8lhkR1p/T43UQ7eXJuQLv+Q7L9QYzijlPSzV5NHp\
+    Xu0QBf7gvXTg1jG2G3BdzjzCog9l5ag9StM3S6CEyNdQ/pCnlzcuDzstkAJVR2P0eO2Fk";
 
     const PRE_KEY_MESSAGE_CIPHERTEXT: [u8; 32] = [
-        70, 22, 118, 114, 6, 92, 33, 100, 27, 33, 173, 183, 71, 181, 56, 203, 83, 40, 213, 31, 237,
-        44, 38, 140, 83, 236, 99, 205, 21, 121, 178, 97,
+        104, 244, 198, 227, 211, 154, 191, 67, 142, 129, 142, 91, 153, 69, 124, 108, 207, 37, 134,
+        68, 117, 167, 244, 248, 221, 68, 59, 121, 114, 110, 64, 187,
     ];
 
-    const MESSAGE: &str = "AwogI7JhE/UsMZqXKb3xV6kUZWoJc6jTm2+AIgWYmaETIR0QASIQ\
-                           +X2zb7kEX/3JvoLspcNBcLWOFXYpV0nS";
+    const MESSAGE: &str = "BAogZ+bkmRhdKyEiSGUl6CV6vL+/l4sR4tBP0iBb2wv/934QACIgkI0Sn+dc1VgMQeA6XA9k\
+    Hn3m2hYB9Xhly18Pebzc0zcxqJMDAiPTsqSnVqc7GPWX4i4N6IpNli5pZ10aET+7/A";
 
-    const MESSAGE_CIPHERTEXT: [u8; 16] =
-        [249, 125, 179, 111, 185, 4, 95, 253, 201, 190, 130, 236, 165, 195, 65, 112];
+    const MESSAGE_CIPHERTEXT: [u8; 32] = [
+        144, 141, 18, 159, 231, 92, 213, 88, 12, 65, 224, 58, 92, 15, 100, 30, 125, 230, 218, 22,
+        1, 245, 120, 101, 203, 95, 15, 121, 188, 220, 211, 55,
+    ];
 
     impl From<OlmMessage> for LibolmMessage {
         fn from(value: OlmMessage) -> LibolmMessage {

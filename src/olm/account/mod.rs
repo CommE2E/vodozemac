@@ -14,8 +14,7 @@
 
 mod fallback_keys;
 mod one_time_keys;
-
-use std::collections::HashMap;
+mod prekeys;
 
 use chacha20poly1305::{
     ChaCha20Poly1305,
@@ -23,6 +22,7 @@ use chacha20poly1305::{
 };
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 use x25519_dalek::ReusableSecret;
 use zeroize::Zeroize;
@@ -37,10 +37,11 @@ use super::{
     messages::PreKeyMessage,
     session::{DecryptionError, Session},
     session_keys::SessionKeys,
-    shared_secret::{RemoteShared3DHSecret, Shared3DHSecret},
+    shared_secret::{RemoteSharedX3DHSecret, SharedX3DHSecret},
 };
+use crate::olm::account::prekeys::PreKeys;
 use crate::{
-    Ed25519Signature, PickleError,
+    Ed25519Signature, PickleError, SignatureError,
     types::{
         Curve25519Keypair, Curve25519KeypairPickle, Curve25519PublicKey, Curve25519SecretKey,
         Ed25519Keypair, Ed25519KeypairPickle, Ed25519PublicKey, KeyId,
@@ -48,7 +49,7 @@ use crate::{
     utilities::{pickle, unpickle},
 };
 
-const PUBLIC_MAX_ONE_TIME_KEYS: usize = 50;
+const PUBLIC_MAX_ONE_TIME_KEYS: usize = 100;
 
 /// Error describing failure modes when creating a Olm [`Session`] from an
 /// incoming Olm message.
@@ -59,6 +60,9 @@ pub enum SessionCreationError {
     /// already been used up.
     #[error("The pre-key message contained an unknown one-time key: {0}")]
     MissingOneTimeKey(Curve25519PublicKey),
+    /// The pre-key message contained an unknown prekey.
+    #[error("The pre-key message contained an unknown pre-key: {0}")]
+    MissingPreKey(Curve25519PublicKey),
     /// The pre-key message contains a Curve25519 identity key that doesn't
     /// match to the identity key that was given.
     #[error(
@@ -106,24 +110,31 @@ pub struct Account {
     /// A permanent Ed25519 key used for signing. Also known as the fingerprint
     /// key.
     signing_key: Ed25519Keypair,
-    /// The permanent Curve25519 key used for triple Diffie-Hellman (3DH). Also
-    /// known as the sender key or the identity key.
+    /// The permanent Curve25519 key used for extended triple
+    /// Diffie-Hellman (X3DH). Also known as the sender key or
+    /// the identity key.
     diffie_hellman_key: Curve25519Keypair,
+    /// The medium-term Curve25519 key used for extended triple
+    /// Diffie-Hellman (X3DH). Rotated periodically, signed by signing key.
+    prekeys: PreKeys,
     /// The ephemeral (one-time) Curve25519 keys used as part of the triple
-    /// Diffie-Hellman (3DH).
+    /// Diffie-Hellman (X3DH).
     one_time_keys: OneTimeKeys,
     /// The ephemeral Curve25519 keys used in lieu of a one-time key as part of
-    /// the 3DH, in case we run out of those. We keep track of both the current
-    /// and the previous fallback key in any given moment.
+    /// the X3DH, in case we run out of those. We keep track of both the
+    /// current and the previous fallback key in any given moment.
     fallback_keys: FallbackKeys,
 }
 
 impl Account {
     /// Create a new [`Account`] with new random identity keys.
     pub fn new() -> Self {
+        let signing_key = Ed25519Keypair::new();
+        let prekeys = PreKeys::new(signing_key.clone());
         Self {
-            signing_key: Ed25519Keypair::new(),
+            signing_key,
             diffie_hellman_key: Curve25519Keypair::new(),
+            prekeys,
             one_time_keys: OneTimeKeys::new(),
             fallback_keys: FallbackKeys::new(),
         }
@@ -168,32 +179,50 @@ impl Account {
         PUBLIC_MAX_ONE_TIME_KEYS
     }
 
-    /// Create a [`Session`] with the given identity key and one-time key.
+    /// Create a [`Session`] with the given identity key, signed prekey,
+    /// and one-time key (if exists).
     pub fn create_outbound_session(
         &self,
         session_config: SessionConfig,
         identity_key: Curve25519PublicKey,
-        one_time_key: Curve25519PublicKey,
-    ) -> Session {
+        signing_key: Ed25519PublicKey,
+        one_time_key: Option<Curve25519PublicKey>,
+        prekey: Curve25519PublicKey,
+        prekey_signature: String,
+        olm_compatibility_mode: bool,
+    ) -> Result<Session, SignatureError> {
         let rng = thread_rng();
 
         let base_key = ReusableSecret::random_from_rng(rng);
         let public_base_key = Curve25519PublicKey::from(&base_key);
 
-        let shared_secret = Shared3DHSecret::new(
+        let signature = Ed25519Signature::from_base64(prekey_signature.as_str())?;
+        signing_key.verify(prekey.to_bytes().as_ref(), &signature)?;
+
+        let shared_secret = SharedX3DHSecret::new(
             self.diffie_hellman_key.secret_key(),
             &base_key,
             &identity_key,
             &one_time_key,
+            &prekey,
+            olm_compatibility_mode,
         );
 
         let session_keys = SessionKeys {
             identity_key: self.curve25519_key(),
             base_key: public_base_key,
-            one_time_key,
+            // In Comm's original fork of the Olm C++ library, we opted to
+            // represent the case of no OTK being available by using the prekey
+            // in its place. This was originally to avoid having to change
+            // types in the C++ codebase. We preserve this behavior here because
+            // we use the same representation in the pre-key message, and as
+            // such need to maintain it for compatibility with Comm's fork of
+            // the Olm C++ library.
+            one_time_key: one_time_key.unwrap_or(prekey),
+            prekey,
         };
 
-        Session::new(session_config, shared_secret, session_keys)
+        Ok(Session::new(session_config, shared_secret, session_keys))
     }
 
     /// Try to find a [`Curve25519SecretKey`] that forms a pair with the given
@@ -239,26 +268,32 @@ impl Account {
                 pre_key_message.identity_key(),
             ))
         } else {
+            let public_prekey = pre_key_message.prekey();
+            let Some(private_prekey) = self.prekeys.get_secret_key(&public_prekey) else {
+                return Err(SessionCreationError::MissingPreKey(public_prekey));
+            };
+
             // Find the matching private part of the OTK that the message claims
             // was used to create the session that encrypted it.
+            // If OTK == prekey, this means the sender didn't have an OTK available
+            // and used the prekey as OTK instead (see create_outbound_session).
+            // We compare the bytes to detect this case, rather than making OTK nullable.
+            // This is for compatibility with our Olm fork.
             let public_otk = pre_key_message.one_time_key();
-            let private_otk = self
-                .find_one_time_key(&public_otk)
-                .ok_or(SessionCreationError::MissingOneTimeKey(public_otk))?;
-
-            // Construct a 3DH shared secret from the various curve25519 keys.
-            let shared_secret = RemoteShared3DHSecret::new(
-                self.diffie_hellman_key.secret_key(),
-                private_otk,
-                &pre_key_message.identity_key(),
-                &pre_key_message.base_key(),
-            );
+            let using_prekey_as_otk = public_otk.to_bytes() == public_prekey.to_bytes();
+            let private_otk = match using_prekey_as_otk {
+                true => private_prekey,
+                false => self
+                    .find_one_time_key(&public_otk)
+                    .ok_or(SessionCreationError::MissingOneTimeKey(public_otk))?,
+            };
 
             // These will be used to uniquely identify the Session.
             let session_keys = SessionKeys {
                 identity_key: pre_key_message.identity_key(),
                 base_key: pre_key_message.base_key(),
                 one_time_key: pre_key_message.one_time_key(),
+                prekey: pre_key_message.prekey(),
             };
 
             let config = if pre_key_message.message.mac_truncated() {
@@ -267,17 +302,40 @@ impl Account {
                 SessionConfig::version_2()
             };
 
-            // Create a Session, AKA a double ratchet, this one will have an
-            // inactive sending chain until we decide to encrypt a message.
-            let mut session = Session::new_remote(
-                config,
-                shared_secret,
-                pre_key_message.message.ratchet_key,
-                session_keys,
-            );
+            let try_decrypt_with_mode =
+                |olm_compatibility_mode: bool| -> Result<(Session, Vec<u8>), DecryptionError> {
+                    // Construct a X3DH shared secret from the various curve25519 keys.
+                    let shared_secret = RemoteSharedX3DHSecret::new(
+                        self.diffie_hellman_key.secret_key(),
+                        private_otk,
+                        &pre_key_message.identity_key(),
+                        &pre_key_message.base_key(),
+                        private_prekey,
+                        olm_compatibility_mode,
+                    );
 
-            // Decrypt the message to check if the Session is actually valid.
-            let plaintext = session.decrypt_decoded(&pre_key_message.message)?;
+                    // Create a Session, AKA a double ratchet, this one will have an
+                    // inactive sending chain until we decide to encrypt a message.
+                    let mut session = Session::new_remote(
+                        config,
+                        shared_secret,
+                        pre_key_message.message.ratchet_key,
+                        session_keys,
+                    );
+
+                    // Decrypt the message to check if the Session is actually valid.
+                    let plaintext = session.decrypt_decoded(&pre_key_message.message)?;
+                    Ok((session, plaintext))
+                };
+
+            // COMPATIBILITY: Comm/olm has a bug where it only uses 3 or 4 bytes
+            // of the shared secret for HKDF instead of the full 96 or 128 bytes.
+            // Temporary replicate this bug for compatibility.
+            // Try with full secret length first (correct implementation)
+            // If decryption fails, fall back to olm_compatibility_mode (short secret)
+            let result = try_decrypt_with_mode(false).or_else(|_| try_decrypt_with_mode(true))?;
+
+            let (session, plaintext) = result;
 
             // We only drop the one-time key now, this is why we can't use a
             // one-time key type that takes `self`. If we didn't do this,
@@ -371,6 +429,7 @@ impl Account {
         AccountPickle {
             signing_key: self.signing_key.clone().into(),
             diffie_hellman_key: self.diffie_hellman_key.clone().into(),
+            prekeys: self.prekeys.clone(),
             one_time_keys: self.one_time_keys.clone().into(),
             fallback_keys: self.fallback_keys.clone(),
         }
@@ -379,6 +438,50 @@ impl Account {
     /// Restore an [`Account`] from a previously saved [`AccountPickle`].
     pub fn from_pickle(pickle: AccountPickle) -> Self {
         pickle.into()
+    }
+
+    /// Generate a signed new prekey.
+    ///
+    /// The prekey key will be used by other users to establish a [`Session`].
+    pub fn generate_prekey(&mut self) {
+        self.prekeys.generate_prekey(self.signing_key.clone())
+    }
+
+    /// Forget about the old prekey.
+    pub fn forget_old_prekey(&mut self) {
+        self.prekeys.forget_old_prekey()
+    }
+
+    /// Get the UNIX timestamp prekey (in seconds) was published.
+    pub fn get_last_prekey_publish_time(&self) -> u64 {
+        self.prekeys.get_last_prekey_publish_time()
+    }
+
+    /// Marks the current prekey as published. `unpublished_prekey` will no
+    /// longer return this prekey.
+    pub fn mark_prekey_as_published(&mut self) -> bool {
+        self.prekeys.mark_as_published()
+    }
+
+    /// Output a prekey.
+    pub fn prekey(&self) -> Option<Curve25519PublicKey> {
+        self.prekeys.current_prekey().map(|pre_key| pre_key.public_key())
+    }
+
+    /// Output an unpublished prekey.
+    pub fn unpublished_prekey(&self) -> Option<Curve25519PublicKey> {
+        let pre_key = self.prekeys.current_prekey();
+        if let Some(pre_key) = pre_key {
+            if !pre_key.published { Some(pre_key.public_key()) } else { None }
+        } else {
+            None
+        }
+    }
+
+    /// Returns a base64-encoded Ed25519 signature on the current prekey,
+    /// using the identity signing key.
+    pub fn get_prekey_signature(&self) -> Option<String> {
+        self.prekeys.get_prekey_signature()
     }
 
     /// Create an [`Account`] object by unpickling an account pickle in libolm
@@ -394,7 +497,8 @@ impl Account {
         use self::libolm::Pickle;
         use crate::utilities::unpickle_libolm;
 
-        const PICKLE_VERSION: u32 = 4;
+        // Version 10005 adds support for X3DH
+        const PICKLE_VERSION: u32 = 10005;
         unpickle_libolm::<Pickle, _>(pickle, pickle_key, PICKLE_VERSION)
     }
 
@@ -426,11 +530,6 @@ impl Account {
     /// let export = account
     ///     .to_libolm_pickle(&[0u8; 32])
     ///     .expect("We should be able to pickle a freshly created Account");
-    ///
-    /// let unpickled = OlmAccount::unpickle(
-    ///     export,
-    ///     PicklingMode::Encrypted { key: [0u8; 32].to_vec() },
-    /// ).expect("We should be able to unpickle our exported Account");
     /// ```
     #[cfg(feature = "libolm-compat")]
     pub fn to_libolm_pickle(&self, pickle_key: &[u8]) -> Result<String, crate::LibolmPickleError> {
@@ -567,6 +666,7 @@ impl Default for Account {
 pub struct AccountPickle {
     signing_key: Ed25519KeypairPickle,
     diffie_hellman_key: Curve25519KeypairPickle,
+    prekeys: PreKeys,
     one_time_keys: OneTimeKeysPickle,
     fallback_keys: FallbackKeys,
 }
@@ -595,6 +695,7 @@ impl From<AccountPickle> for Account {
         Self {
             signing_key: pickle.signing_key.into(),
             diffie_hellman_key: pickle.diffie_hellman_key.into(),
+            prekeys: pickle.prekeys,
             one_time_keys: pickle.one_time_keys.into(),
             fallback_keys: pickle.fallback_keys,
         }
@@ -611,6 +712,7 @@ mod libolm {
         fallback_keys::{FallbackKey, FallbackKeys},
         one_time_keys::OneTimeKeys,
     };
+    use crate::olm::account::prekeys::{PreKey, PreKeys};
     use crate::{
         Curve25519PublicKey, Ed25519Keypair, KeyId,
         types::{Curve25519Keypair, Curve25519SecretKey},
@@ -684,11 +786,104 @@ mod libolm {
     }
 
     #[derive(Encode, Decode, Zeroize, ZeroizeOnDrop)]
+    struct PickledPreKey {
+        key_id: u32,
+        published: bool,
+        public_key: [u8; 32],
+        private_key: Box<[u8; 32]>,
+        signature: [u8; 64],
+    }
+
+    impl From<&PickledPreKey> for PreKey {
+        fn from(key: &PickledPreKey) -> Self {
+            PreKey {
+                key_id: key.key_id,
+                published: key.published,
+                key: Curve25519SecretKey::from_slice(&key.private_key),
+                signature: key.signature,
+            }
+        }
+    }
+
+    #[derive(Zeroize, ZeroizeOnDrop)]
+    struct PickledPreKeys {
+        current_prekey: Option<PickledPreKey>,
+        prev_prekey: Option<PickledPreKey>,
+    }
+
+    impl Decode for PickledPreKeys {
+        fn decode(reader: &mut impl std::io::Read) -> Result<Self, DecodeError> {
+            let count = u8::decode(reader)?;
+
+            let (current_prekey, prev_prekey) = if count >= 1 {
+                let current_prekey = PickledPreKey::decode(reader)?;
+
+                let prev_prekey =
+                    if count >= 2 { Some(PickledPreKey::decode(reader)?) } else { None };
+
+                (Some(current_prekey), prev_prekey)
+            } else {
+                (None, None)
+            };
+
+            Ok(Self { current_prekey, prev_prekey })
+        }
+    }
+
+    impl Encode for PickledPreKeys {
+        fn encode(&self, writer: &mut impl std::io::Write) -> Result<usize, EncodeError> {
+            let ret = match (&self.current_prekey, &self.prev_prekey) {
+                (None, None) => 0u8.encode(writer)?,
+                (Some(key), None) | (None, Some(key)) => {
+                    let mut ret = 1u8.encode(writer)?;
+                    ret += key.encode(writer)?;
+
+                    ret
+                }
+                (Some(key), Some(previous_key)) => {
+                    let mut ret = 2u8.encode(writer)?;
+                    ret += key.encode(writer)?;
+                    ret += previous_key.encode(writer)?;
+
+                    ret
+                }
+            };
+
+            Ok(ret)
+        }
+    }
+
+    // New type wrapper for u64 to allow implementing external traits.
+    #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+    struct Timestamp(u64);
+
+    impl Decode for Timestamp {
+        fn decode(reader: &mut impl std::io::Read) -> Result<Self, DecodeError>
+        where
+            Self: Sized,
+        {
+            let mut bytes = [0u8; 8];
+            reader.read_exact(&mut bytes)?;
+            Ok(Timestamp(u64::from_be_bytes(bytes)))
+        }
+    }
+
+    impl Encode for Timestamp {
+        fn encode(&self, writer: &mut impl std::io::Write) -> Result<usize, EncodeError> {
+            writer.write_all(&self.0.to_be_bytes())?;
+            Ok(8)
+        }
+    }
+
+    #[derive(Encode, Decode, Zeroize, ZeroizeOnDrop)]
     pub(super) struct Pickle {
         version: u32,
         ed25519_keypair: LibolmEd25519Keypair,
         public_curve25519_key: [u8; 32],
         private_curve25519_key: Box<[u8; 32]>,
+        prekeys: PickledPreKeys,
+        next_prekey_id: u32,
+        last_prekey_publish_time: Timestamp,
         one_time_keys: Vec<OneTimeKey>,
         fallback_keys: FallbackKeysArray,
         next_key_id: u32,
@@ -704,6 +899,18 @@ mod libolm {
                 public_key: key.public_key().to_bytes(),
                 private_key: key.secret_key().to_bytes(),
             })
+        }
+    }
+
+    impl From<&PreKey> for PickledPreKey {
+        fn from(key: &PreKey) -> Self {
+            PickledPreKey {
+                key_id: key.key_id,
+                published: key.published,
+                public_key: key.public_key().to_bytes(),
+                private_key: key.secret_key().to_bytes(),
+                signature: key.signature,
+            }
         }
     }
 
@@ -738,6 +945,11 @@ mod libolm {
 
             let next_key_id = account.one_time_keys.next_key_id.try_into().unwrap_or_default();
 
+            let prekeys = PickledPreKeys {
+                current_prekey: account.prekeys.current_prekey.as_ref().map(|p| p.into()),
+                prev_prekey: account.prekeys.prev_prekey.as_ref().map(|p| p.into()),
+            };
+
             Self {
                 version: 4,
                 ed25519_keypair: LibolmEd25519Keypair {
@@ -746,6 +958,9 @@ mod libolm {
                 },
                 public_curve25519_key: account.diffie_hellman_key.public_key().to_bytes(),
                 private_curve25519_key: account.diffie_hellman_key.secret_key().to_bytes(),
+                prekeys,
+                next_prekey_id: account.prekeys.next_prekey_id,
+                last_prekey_publish_time: Timestamp(account.prekeys.last_prekey_publish_time),
                 one_time_keys,
                 fallback_keys,
                 next_key_id,
@@ -782,6 +997,22 @@ mod libolm {
                     .map(|k| k.into()),
             };
 
+            let mut num_prekeys = 0;
+            if pickle.prekeys.current_prekey.is_some() {
+                num_prekeys += 1;
+            }
+            if pickle.prekeys.prev_prekey.is_some() {
+                num_prekeys += 1;
+            }
+
+            let prekeys = PreKeys {
+                current_prekey: pickle.prekeys.current_prekey.as_ref().map(|k| k.into()),
+                prev_prekey: pickle.prekeys.prev_prekey.as_ref().map(|k| k.into()),
+                num_prekeys,
+                next_prekey_id: pickle.next_prekey_id,
+                last_prekey_publish_time: pickle.last_prekey_publish_time.0,
+            };
+
             Ok(Self {
                 signing_key: Ed25519Keypair::from_expanded_key(
                     &pickle.ed25519_keypair.private_key,
@@ -789,6 +1020,7 @@ mod libolm {
                 diffie_hellman_key: Curve25519Keypair::from_secret_key(
                     &pickle.private_curve25519_key,
                 ),
+                prekeys,
                 one_time_keys,
                 fallback_keys,
             })
@@ -805,6 +1037,7 @@ mod dehydrated_device {
         fallback_keys::{FallbackKey, FallbackKeys},
         one_time_keys::OneTimeKeys,
     };
+    use crate::olm::account::prekeys::PreKeys;
     use crate::{
         DehydratedDeviceError, Ed25519Keypair, KeyId,
         types::{Curve25519Keypair, Curve25519SecretKey},
@@ -936,14 +1169,19 @@ mod dehydrated_device {
                 previous_fallback_key: None,
             };
 
+            let signing_key = Ed25519Keypair::from_unexpanded_key(&pickle.private_ed25519_key)
+                .map_err(|e| {
+                    DehydratedDeviceError::LibolmPickle(LibolmPickleError::PublicKey(e))
+                })?;
+
             Ok(Self {
-                signing_key: Ed25519Keypair::from_unexpanded_key(&pickle.private_ed25519_key)
-                    .map_err(|e| {
-                        DehydratedDeviceError::LibolmPickle(LibolmPickleError::PublicKey(e))
-                    })?,
+                signing_key: signing_key.clone(),
                 diffie_hellman_key: Curve25519Keypair::from_secret_key(
                     &pickle.private_curve25519_key,
                 ),
+                // Comm doesn't use dehydrated devices, so we skipped adding X3DH support for it.
+                // If we ever want to use dehydrated devices, we'll need to fix this line.
+                prekeys: PreKeys::new(signing_key),
                 one_time_keys,
                 fallback_keys,
             })
@@ -954,9 +1192,7 @@ mod dehydrated_device {
 #[cfg(test)]
 mod test {
     use anyhow::{Context, Result, bail};
-    use assert_matches2::assert_matches;
     use matrix_pickle::{Decode, Encode};
-    use olm_rs::{account::OlmAccount, session::OlmMessage as LibolmOlmMessage};
 
     #[cfg(feature = "libolm-compat")]
     use super::libolm::Pickle;
@@ -964,7 +1200,7 @@ mod test {
         Account, InboundCreationResult, SessionConfig, SessionCreationError, dehydrated_device,
     };
     use crate::{
-        Curve25519PublicKey as PublicKey,
+        Ed25519Signature, SignatureError,
         cipher::Mac,
         olm::{
             AccountPickle,
@@ -1018,7 +1254,8 @@ mod test {
         assert!(alice.forget_fallback_key());
     }
 
-    #[test]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn vodozemac_libolm_communication() -> Result<()> {
         // vodozemac account
         let alice = Account::new();
@@ -1083,27 +1320,42 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn vodozemac_vodozemac_communication() -> Result<()> {
+    fn test_vodozemac_communication(olm_compatibility_mode: bool, without_otk: bool) -> Result<()> {
         // Both of these are vodozemac accounts.
         let alice = Account::new();
         let mut bob = Account::new();
 
+        let prekey = bob.prekey().unwrap();
+        let prekey_signature = bob.get_prekey_signature().unwrap();
+
         bob.generate_one_time_keys(1);
+
+        let otk = match without_otk {
+            true => None,
+            false => Some(
+                *bob.one_time_keys()
+                    .iter()
+                    .next()
+                    .context("Failed getting bob's OTK, which should never happen here.")?
+                    .1,
+            ),
+        };
 
         let mut alice_session = alice.create_outbound_session(
             SessionConfig::version_2(),
             bob.curve25519_key(),
-            *bob.one_time_keys()
-                .iter()
-                .next()
-                .context("Failed getting bob's OTK, which should never happen here.")?
-                .1,
-        );
+            bob.ed25519_key(),
+            otk,
+            prekey,
+            prekey_signature,
+            olm_compatibility_mode,
+        )?;
 
-        assert!(!bob.one_time_keys().is_empty());
-        bob.mark_keys_as_published();
-        assert!(bob.one_time_keys().is_empty());
+        if !without_otk {
+            assert!(!bob.one_time_keys().is_empty());
+            bob.mark_keys_as_published();
+            assert!(bob.one_time_keys().is_empty());
+        }
 
         let message = "It's a secret to everybody";
         let olm_message = alice_session.encrypt(message);
@@ -1147,6 +1399,27 @@ mod test {
     }
 
     #[test]
+    fn vodozemac_vodozemac_communication() -> Result<()> {
+        test_vodozemac_communication(false, false)
+    }
+
+    #[test]
+    fn vodozemac_vodozemac_communication_olm_compatibility() -> Result<()> {
+        test_vodozemac_communication(true, false)
+    }
+
+    #[test]
+    fn vodozemac_vodozemac_communication_without_otk() -> Result<()> {
+        test_vodozemac_communication(false, true)
+    }
+
+    #[test]
+    fn vodozemac_vodozemac_communication_without_otk_olm_compatibility() -> Result<()> {
+        test_vodozemac_communication(true, true)
+    }
+
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn inbound_session_creation() -> Result<()> {
         let alice = OlmAccount::new();
         let mut bob = Account::new();
@@ -1180,7 +1453,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn inbound_session_creation_using_fallback_keys() -> Result<()> {
         let alice = OlmAccount::new();
         let mut bob = Account::new();
@@ -1244,8 +1518,56 @@ mod test {
         Ok(())
     }
 
+    fn test_pickling(account: &Account) -> Result<()> {
+        let pickle = account.pickle().encrypt(&PICKLE_KEY);
+
+        let decrypted_pickle = AccountPickle::from_encrypted(&pickle, &PICKLE_KEY)?;
+        let unpickled_account = Account::from_pickle(decrypted_pickle);
+        let repickle = unpickled_account.pickle();
+
+        assert_eq!(account.identity_keys(), unpickled_account.identity_keys());
+        assert_eq!(account.prekey(), unpickled_account.prekey());
+        assert_eq!(account.get_prekey_signature(), unpickled_account.get_prekey_signature());
+        assert_eq!(
+            account.get_last_prekey_publish_time(),
+            unpickled_account.get_last_prekey_publish_time()
+        );
+
+        let decrypted_pickle = AccountPickle::from_encrypted(&pickle, &PICKLE_KEY)?;
+        let pickle = serde_json::to_value(decrypted_pickle)?;
+        let repickle = serde_json::to_value(repickle)?;
+
+        assert_eq!(pickle, repickle);
+
+        Ok(())
+    }
+
     #[test]
+    fn account_pickling_with_prekeys() -> Result<()> {
+        let mut account = Account::new();
+        test_pickling(&account)?;
+
+        account.generate_prekey();
+        test_pickling(&account)?;
+
+        account.mark_prekey_as_published();
+        test_pickling(&account)?;
+
+        account.generate_prekey();
+        test_pickling(&account)?;
+
+        account.mark_prekey_as_published();
+        test_pickling(&account)?;
+
+        account.forget_old_prekey();
+        test_pickling(&account)?;
+
+        Ok(())
+    }
+
     #[cfg(feature = "libolm-compat")]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn libolm_unpickling() -> Result<()> {
         let olm = OlmAccount::new();
         olm.generate_one_time_keys(10);
@@ -1346,8 +1668,9 @@ mod test {
         assert_eq!(key_bytes, decoded_key_bytes);
     }
 
-    #[test]
     #[cfg(feature = "libolm-compat")]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn signing_with_expanded_key() -> Result<()> {
         let olm = OlmAccount::new();
         olm.generate_one_time_keys(10);
@@ -1367,17 +1690,25 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn invalid_session_creation_does_not_remove_otk() -> Result<()> {
+    fn test_invalid_session_creation_does_not_remove_otk(
+        olm_compatibility_mode: bool,
+    ) -> Result<()> {
         let mut alice = Account::new();
         let malory = Account::new();
         alice.generate_one_time_keys(1);
 
+        let pre_key = alice.prekey().unwrap();
+        let prekey_signature = alice.get_prekey_signature().unwrap();
+
         let mut session = malory.create_outbound_session(
             SessionConfig::default(),
             alice.curve25519_key(),
-            *alice.one_time_keys().values().next().expect("Should have one-time key"),
-        );
+            alice.ed25519_key(),
+            Some(*alice.one_time_keys().values().next().expect("Should have one-time key")),
+            pre_key,
+            prekey_signature,
+            olm_compatibility_mode,
+        )?;
 
         let message = session.encrypt("Test");
 
@@ -1385,10 +1716,11 @@ mod test {
             let mut message = m.to_bytes();
             let message_len = message.len();
 
-            // We mangle the MAC so decryption fails but creating a Session
-            // succeeds.
-            message[message_len - Mac::TRUNCATED_LEN..message_len]
-                .copy_from_slice(&[0u8; Mac::TRUNCATED_LEN]);
+            // Mangle the inner message MAC (which is before the 64-byte prekey signature)
+            // so decryption fails while prekey signature verification succeeds
+            let mac_start = message_len - Ed25519Signature::LENGTH - Mac::TRUNCATED_LEN;
+            let mac_end = message_len - Ed25519Signature::LENGTH;
+            message[mac_start..mac_end].copy_from_slice(&[0u8; Mac::TRUNCATED_LEN]);
 
             let message = PreKeyMessage::try_from(message)?;
 
@@ -1408,6 +1740,83 @@ mod test {
     }
 
     #[test]
+    fn invalid_session_creation_does_not_remove_otk() -> Result<()> {
+        test_invalid_session_creation_does_not_remove_otk(false)
+    }
+
+    #[test]
+    fn invalid_session_creation_does_not_remove_otk_olm_compatibility() -> Result<()> {
+        test_invalid_session_creation_does_not_remove_otk(true)
+    }
+
+    #[test]
+    fn wrong_prekey_signature_fails_outbound_creation() -> Result<()> {
+        let alice = Account::new();
+        let bob = Account::new();
+
+        let pre_key = bob.prekey().unwrap();
+        let wrong_signature = "A".repeat(88); // Invalid base64 signature
+
+        // Try to create outbound session with wrong prekey signature
+        match alice.create_outbound_session(
+            SessionConfig::default(),
+            bob.curve25519_key(),
+            bob.ed25519_key(),
+            None,
+            pre_key,
+            wrong_signature,
+            false,
+        ) {
+            Err(SignatureError::Signature(..)) => {}
+            e => bail!("Expected a verification error, got {:?}", e),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn wrong_prekey_fails_inbound_creation() -> Result<()> {
+        let mut alice = Account::new();
+        let malory = Account::new();
+        alice.generate_one_time_keys(1);
+
+        // Create session with Bob's prekey (which Alice doesn't have)
+        let bob = Account::new();
+        let bob_prekey = bob.prekey().unwrap();
+        let bob_prekey_sig = bob.get_prekey_signature().unwrap();
+
+        let mut session = malory.create_outbound_session(
+            SessionConfig::default(),
+            bob.curve25519_key(),
+            bob.ed25519_key(),
+            None,
+            bob_prekey,
+            bob_prekey_sig,
+            false,
+        )?;
+
+        let message = session.encrypt("Test");
+
+        if let OlmMessage::PreKey(m) = message {
+            // Try to create inbound session with Alice (who doesn't have Bob's prekey)
+            match alice.create_inbound_session(malory.curve25519_key(), &m) {
+                Err(SessionCreationError::MissingPreKey(_)) => {}
+                e => bail!("Expected MissingPreKey error, got {:?}", e),
+            }
+
+            // Verify Alice's OTK was not removed
+            assert!(
+                !alice.one_time_keys.private_keys.is_empty(),
+                "The one-time key was removed when it shouldn't"
+            );
+
+            Ok(())
+        } else {
+            bail!("Invalid message type");
+        }
+    }
+
+    #[test]
     #[cfg(feature = "libolm-compat")]
     fn fuzz_corpus_unpickling() {
         crate::run_corpus("olm-account-unpickling", |data| {
@@ -1415,8 +1824,9 @@ mod test {
         });
     }
 
-    #[test]
     #[cfg(feature = "libolm-compat")]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn libolm_pickle_cycle() -> Result<()> {
         let message = "It's a secret to everybody";
 
@@ -1469,7 +1879,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
+    #[cfg(any())]
+    #[ignore = "libolm in Rust version does not support X3DH"]
     fn decrypt_with_dehydrated_device() {
         let mut alice = Account::new();
         let bob = Account::new();

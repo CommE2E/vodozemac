@@ -38,7 +38,7 @@ mem_forget = "deny"
 
 [features]
 default = ["libolm-compat"]
-js = ["getrandom/js"]
+js = ["getrandom/js", "js-sys"]
 strict-signatures = []
 libolm-compat = []
 insecure-pk-encryption = ["libolm-compat"]
@@ -58,6 +58,7 @@ ed25519-dalek = { version = "2.1.1", default-features = false, features = ["rand
 getrandom = "0.2.15"
 hkdf = "0.12.4"
 hmac = "0.12.1"
+js-sys = { version = "0.3.57", optional = true }
 matrix-pickle = { version = "0.2.1" }
 prost = "0.14.1"
 rand = "0.8.5"
