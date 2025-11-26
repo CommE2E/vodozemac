@@ -211,10 +211,13 @@ impl Account {
         let session_keys = SessionKeys {
             identity_key: self.curve25519_key(),
             base_key: public_base_key,
-            // When there's no OTK available, we use the prekey as the OTK.
-            // This avoids making OTK nullable across the entire system.
-            // The receiver will detect this by comparing OTK == prekey.
-            // This is for compatibility with our Olm fork.
+            // In Comm's original fork of the Olm C++ library, we opted to
+            // represent the case of no OTK being available by using the prekey
+            // in its place. This was originally to avoid having to change
+            // types in the C++ codebase. We preserve this behavior here because
+            // we use the same representation in the pre-key message, and as
+            // such need to maintain it for compatibility with Comm's fork of
+            // the Olm C++ library.
             one_time_key: one_time_key.unwrap_or(prekey),
             prekey,
         };

@@ -99,10 +99,13 @@ impl RemoteSharedX3DHSecret {
         pre_key_secret: &StaticSecret,
         olm_compatibility_mode: bool,
     ) -> Self {
-        // Check if the sender used prekey as OTK by comparing their bytes.
-        // If OTK == prekey, the sender didn't have an OTK available and used
-        // the prekey as OTK instead.
-        // This is for compatibility with our Olm fork.
+        // In Comm's original fork of the Olm C++ library, we opted to
+        // represent the case of no OTK being available by using the prekey
+        // in its place. This was originally to avoid having to change
+        // types in the C++ codebase. We preserve this behavior here because
+        // we use the same representation in the pre-key message, and as
+        // such need to maintain it for compatibility with Comm's fork of
+        // the Olm C++ library.
         let using_prekey_as_otk =
             PublicKey::from(one_time_key).to_bytes() == PublicKey::from(pre_key_secret).to_bytes();
 

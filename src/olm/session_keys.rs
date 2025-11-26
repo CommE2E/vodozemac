@@ -80,7 +80,6 @@ mod test {
     use crate::Curve25519PublicKey;
 
     #[test]
-
     fn snapshot_session_keys_debug() {
         let key = Curve25519PublicKey::from_bytes([0; 32]);
 
