@@ -120,7 +120,7 @@ describe('vodozemac utils', () => {
     let encrypted = aliceSession.encrypt(test_text);
     expect(encrypted.message_type).toEqual(0);
 
-    var result;
+    let result;
 
     try {
       result = bobAccount.create_inbound_session(aliceAccount.curve25519_key, encrypted);
@@ -132,10 +132,10 @@ describe('vodozemac utils', () => {
     // Removing OTKs is now done as part of create_inbound_session.
     // There is no need for additional decryption.
 
-    var decrypted = result.plaintext;
+    let decrypted = result.plaintext;
     expect(decrypted).toEqual(test_text);
 
-    var bobSession = result.into_session();
+    let bobSession = result.into_session();
 
     test_text = randomString(40);
     encrypted = bobSession.encrypt(test_text);
