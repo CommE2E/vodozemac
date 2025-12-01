@@ -152,6 +152,7 @@ impl Account {
             vodozemac::Ed25519PublicKey::from_base64(signing_key).map_err(error_to_js)?;
         let one_time_key = match one_time_key {
             None => None,
+            Some(key) if key.is_empty() => None,
             Some(key) => Some(
                 vodozemac::Curve25519PublicKey::from_base64(key.as_ref()).map_err(error_to_js)?,
             ),
