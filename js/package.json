@@ -1,0 +1,37 @@
+{
+  "name": "vodozemac",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./wasm/vodozemac.js",
+  "module": "./wasm/vodozemac.js",
+  "files": [
+    "wasm/"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-flow": "^7.27.1",
+    "@commapp/olm": "^0.2.6",
+    "babel-jest": "^29.0.0",
+    "flow-bin": "^0.239.1",
+    "jest": "^29.7.0"
+  },
+  "scripts": {
+    "build": "wasm-pack build --target web --no-typescript --reference-types --no-pack --out-dir wasm --out-name vodozemac && node scripts/patch-wasm-loader.js",
+    "clean": "rm -rf wasm/ target/ node_modules/.cache && jest --clearCache",
+    "flow": "flow",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "jest": {
+    "transform": {
+      "\\.js$": [
+        "babel-jest",
+        {
+          "rootMode": "upward"
+        }
+      ]
+    },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!@babel/runtime)"
+    ]
+  }
+}
