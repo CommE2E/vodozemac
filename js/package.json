@@ -1,5 +1,9 @@
 {
-  "name": "vodozemac",
+  "name": "@commapp/vodozemac",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CommE2E/vodozemac.git"
+  },
   "version": "0.1.0",
   "type": "module",
   "main": "./wasm/vodozemac.js",
