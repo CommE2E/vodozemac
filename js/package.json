@@ -5,7 +5,8 @@
   "main": "./wasm/vodozemac.js",
   "module": "./wasm/vodozemac.js",
   "files": [
-    "wasm/"
+    "wasm/vodozemac.js",
+    "wasm/vodozemac_bg.wasm"
   ],
   "devDependencies": {
     "@babel/core": "^7.28.5",
