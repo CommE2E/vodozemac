@@ -37,6 +37,9 @@
     },
     "transformIgnorePatterns": [
       "/node_modules/(?!@babel/runtime)"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^vodozemac$": "<rootDir>/wasm/vodozemac.js"
+    }
   }
 }
