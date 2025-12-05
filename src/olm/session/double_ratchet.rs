@@ -357,7 +357,6 @@ mod test {
                 Some(*bob_otk),
                 pre_key,
                 prekey_signature,
-                false,
             )
             .expect("Couldn't create session");
 

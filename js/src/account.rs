@@ -4,7 +4,7 @@ use crate::error_to_js;
 use vodozemac::olm;
 use wasm_bindgen::prelude::*;
 
-use super::{session::Session, OlmMessage};
+use super::{OlmMessage, session::Session};
 
 #[wasm_bindgen]
 pub struct Account {
@@ -117,19 +117,11 @@ impl Account {
     }
 
     pub fn prekey(&self) -> Option<String> {
-        if let Some(key) = self.inner.prekey() {
-            Some(key.to_base64())
-        } else {
-            None
-        }
+        if let Some(key) = self.inner.prekey() { Some(key.to_base64()) } else { None }
     }
 
     pub fn unpublished_prekey(&self) -> Option<String> {
-        if let Some(key) = self.inner.unpublished_prekey() {
-            Some(key.to_base64())
-        } else {
-            None
-        }
+        if let Some(key) = self.inner.unpublished_prekey() { Some(key.to_base64()) } else { None }
     }
 
     pub fn prekey_signature(&self) -> Option<String> {
@@ -143,7 +135,6 @@ impl Account {
         one_time_key: Option<String>,
         pre_key: &str,
         pre_key_signature: &str,
-        olm_compatibility_mode: bool,
     ) -> Result<Session, JsValue> {
         let session_config = vodozemac::olm::SessionConfig::version_1();
         let identity_key =
@@ -168,7 +159,6 @@ impl Account {
                 one_time_key,
                 pre_key,
                 pre_key_signature.to_string(),
-                olm_compatibility_mode,
             )
             .map_err(error_to_js)?;
 
