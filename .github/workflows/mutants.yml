@@ -14,7 +14,7 @@ jobs:
   cargo-mutants:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
           fetch-depth: 0
 
@@ -28,10 +28,10 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
 
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532
+        uses: taiki-e/install-action@3522286d40783523f9c7880e33f785905b4c20d0
         with:
           tool: cargo-mutants
 
@@ -39,7 +39,7 @@ jobs:
         run: cargo mutants -vV --no-shuffle --in-place --in-diff git.diff
 
       - name: Archive mutants.out
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
           name: mutants-incremental.out

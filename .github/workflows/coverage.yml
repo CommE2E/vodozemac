@@ -17,7 +17,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       with:
         ref: ${{ github.event.pull_request.head.sha }}
 
@@ -27,20 +27,20 @@ jobs:
         toolchain: stable
 
     - name: Load cache
-      uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1
+      uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
 
     - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532
+      uses: taiki-e/install-action@3522286d40783523f9c7880e33f785905b4c20d0
       with:
         tool: cargo-llvm-cov
 
     - name: Install nextest
-      uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532
+      uses: taiki-e/install-action@3522286d40783523f9c7880e33f785905b4c20d0
       with:
         tool: nextest
 
     - name: Install just
-      uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532
+      uses: taiki-e/install-action@3522286d40783523f9c7880e33f785905b4c20d0
       with:
         tool: just
 
@@ -54,7 +54,7 @@ jobs:
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f
+      uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3
       with:
         files: ./target/nextest/ci/junit.xml
         token: ${{ secrets.CODECOV_TOKEN }}
